@@ -1,6 +1,5 @@
 env/
 .env
-session.session
 __pycache__/
 *.pyc
 *.pyo

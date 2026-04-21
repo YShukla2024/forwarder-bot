@@ -2,6 +2,7 @@ import os
 import re
 import asyncio
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from dotenv import load_dotenv
 
 # ================== LOAD CONFIG ==================
@@ -10,6 +11,7 @@ load_dotenv()
 api_id = int(os.getenv("API_ID"))
 api_hash = os.getenv("API_HASH")
 phone = os.getenv("PHONE")
+session_string = os.getenv("SESSION_STRING")  # ✅ Azure fix
 
 target_group_raw = os.getenv("TARGET_GROUP_ID")
 target_group = int(target_group_raw) if target_group_raw.startswith("-100") else target_group_raw
@@ -30,15 +32,16 @@ SOURCE_CHATS = [
     -1001428572098,
     -1001067365629,
     -1001548665510,
-    -1001821769537,#TESLA TRADERS XAU
-    -1002365747286,#Hifaz’s Trading Club
+    -1001821769537,  # TESLA TRADERS XAU
+    -1002365747286,  # Hifaz's Trading Club
     -5277876817
 ]
 
 PRINT_ALL_MESSAGES = True
 SEND_TEST_ON_START = True
 
-client = TelegramClient("session", api_id, api_hash)
+# ✅ Use StringSession for Azure (no file needed)
+client = TelegramClient(StringSession(session_string), api_id, api_hash)
 
 # ================== NORMALIZE ==================
 
@@ -53,9 +56,9 @@ def normalize_text(text):
             .replace("⁷", "7")
             .replace("⁸", "8")
             .replace("⁹", "9")
-            .replace("：", " ")   # fullwidth colon → space
-            .replace("–", "-")    # en-dash → hyphen
-            .replace("—", "-")    # em-dash → hyphen
+            .replace("：", " ")
+            .replace("–", "-")
+            .replace("—", "-")
     )
 
 # ================== SIGNAL CHECKER ==================
@@ -65,7 +68,6 @@ def is_signal(text):
         return False
     t = text.upper()
 
-    # ❌ Block EA bot execution/update messages
     if "TRADE TYPE:" in t:
         return False
     if "UPDATE STOP LOSS" in t or "UPDATE TAKE PROFIT" in t:
@@ -110,13 +112,11 @@ async def handler(event):
         if not raw_text.strip():
             return
 
-        # ✅ Normalize first
         text = normalize_text(raw_text)
 
         if not is_signal(text):
             return
 
-        # ✅ Forward normalized text
         await client.send_message(target_group, text)
         print(f"✅ Forwarded from {chat_id}")
 
@@ -125,7 +125,7 @@ async def handler(event):
 
 # ================== MAIN ==================
 async def main():
-    await client.start(phone)
+    await client.start()  # ✅ No phone needed — StringSession already authenticated
 
     print("🔄 Loading sources...")
     for chat_id in SOURCE_CHATS:
@@ -147,6 +147,7 @@ async def main():
 
     print("🚀 Listening...")
     await client.run_until_disconnected()
+
 # ================== RUN ==================
 if __name__ == "__main__":
     asyncio.run(main())

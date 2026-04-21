@@ -1,0 +1,4 @@
+telethon
+pillow
+requests
+python-dotenv

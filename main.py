@@ -1,6 +1,7 @@
 import os
 import re
 import asyncio
+from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from dotenv import load_dotenv
@@ -11,7 +12,7 @@ load_dotenv()
 api_id = int(os.getenv("API_ID"))
 api_hash = os.getenv("API_HASH")
 phone = os.getenv("PHONE")
-session_string = os.getenv("SESSION_STRING")  # ✅ Azure fix
+session_string = os.getenv("SESSION_STRING")
 
 target_group_raw = os.getenv("TARGET_GROUP_ID")
 target_group = int(target_group_raw) if target_group_raw.startswith("-100") else target_group_raw
@@ -34,13 +35,20 @@ SOURCE_CHATS = [
     -1001548665510,
     -1001821769537,  # TESLA TRADERS XAU
     -1002365747286,  # Hifaz's Trading Club
-    -5277876817
+    -1001218056271,  # Sureshot FX
+    -1001588519179,  # SureShot GOLD
+    -1001381790914,  # Sureshot INDICES
+    -1001954127662,  # Sureshot VIP
+    -1001604836510,  # Trade4Grow
+    -1001886710177,  # FX FOREX TECH
+    -1002053336035,  # Forex Free Signals
+    -1001805719691,  # All Market Signals
+    -5277876817      # Gold Signal Test
 ]
 
 PRINT_ALL_MESSAGES = True
 SEND_TEST_ON_START = True
 
-# ✅ Use StringSession for Azure (no file needed)
 client = TelegramClient(StringSession(session_string), api_id, api_hash)
 
 # ================== NORMALIZE ==================
@@ -76,6 +84,8 @@ def is_signal(text):
         return False
     if "NEW STOP LOSS:" in t or "NEW TAKE PROFIT:" in t:
         return False
+    if "TRADE EXECUTED" in t:
+        return False
 
     has_direction = re.search(r'\b(BUY|SELL)\b', t)
     has_trade_info = re.search(
@@ -86,7 +96,7 @@ def is_signal(text):
     return bool(has_direction and has_trade_info)
 
 # ================== DEBUG LOGGER ==================
-@client.on(events.NewMessage)
+@client.on(events.NewMessage)  # ✅ no incoming filter
 async def debug_logger(event):
     if PRINT_ALL_MESSAGES:
         try:
@@ -99,8 +109,43 @@ async def debug_logger(event):
         except Exception as e:
             print("❌ Debug error:", e)
 
+# ================== COMMAND HANDLER ==================
+@client.on(events.NewMessage(outgoing=True, pattern=r'^/test$'))
+async def cmd_test(event):
+    try:
+        await client.send_message(target_group,
+            "🧪 TEST SIGNAL\n"
+            "XAUUSD BUY 1900\n"
+            "TP1: 1910\n"
+            "SL: 1890"
+        )
+        await event.reply("✅ Test signal sent to target group!")
+        print("🧪 Manual test triggered")
+    except Exception as e:
+        await event.reply(f"❌ Test failed: {e}")
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^/status$'))
+async def cmd_status(event):
+    await event.reply(
+        f"🟢 Bot is running\n"
+        f"📋 Monitoring {len(SOURCE_CHATS)} source groups\n"
+        f"🎯 Target: {target_group}"
+    )
+    print("📊 Status check triggered")
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^/check (.+)'))
+async def cmd_check(event):
+    test_text = event.pattern_match.group(1)
+    normalized = normalize_text(test_text)
+    result = is_signal(normalized)
+    await event.reply(
+        f"📝 Input: {test_text}\n"
+        f"🔄 Normalized: {normalized}\n"
+        f"{'✅ WOULD FORWARD' if result else '❌ WOULD BE FILTERED'}"
+    )
+
 # ================== MAIN HANDLER ==================
-@client.on(events.NewMessage)
+@client.on(events.NewMessage)  # ✅ no incoming filter — apne messages bhi process honge
 async def handler(event):
     try:
         chat_id = event.chat_id
@@ -110,6 +155,10 @@ async def handler(event):
 
         raw_text = event.message.message or ""
         if not raw_text.strip():
+            return
+
+        # ❌ Skip command messages
+        if raw_text.startswith("/"):
             return
 
         text = normalize_text(raw_text)
@@ -125,7 +174,7 @@ async def handler(event):
 
 # ================== MAIN ==================
 async def main():
-    await client.start()  # ✅ No phone needed — StringSession already authenticated
+    await client.start()
 
     print("🔄 Loading sources...")
     for chat_id in SOURCE_CHATS:
@@ -140,14 +189,68 @@ async def main():
 
     if SEND_TEST_ON_START:
         try:
-            result = await client.send_message(target_entity, "🚀 BOT STARTED")
-            print("✅ Test message sent:", result.id)
+            await client.send_message(target_entity,
+                "🟢 BOT STARTED\n"
+                "📡 Listening to signal sources...\n"
+                f"📋 Monitoring {len(SOURCE_CHATS)} groups"
+            )
+            print("✅ Start message sent")
         except Exception as e:
             print("❌ Send failed:", e)
 
+    # ✅ Recover missed messages from last 30 mins
+    print("🔄 Checking missed messages (last 30 mins)...")
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    recovered = 0
+
+    for chat_id in SOURCE_CHATS:
+        try:
+            async for msg in client.iter_messages(chat_id, limit=20):
+                if msg.date < cutoff:
+                    break
+                if not msg.text or not msg.text.strip():
+                    continue
+                text = normalize_text(msg.text)
+                if is_signal(text):
+                    await client.send_message(target_group,
+                        f"📬 MISSED SIGNAL\n\n{text}"
+                    )
+                    recovered += 1
+                    print(f"📬 Recovered from {chat_id}")
+                    await asyncio.sleep(1)
+        except Exception as e:
+            print(f"❌ Missed check failed {chat_id}: {e}")
+
+    if recovered == 0:
+        print("✅ No missed signals found")
+    else:
+        print(f"📬 Recovered {recovered} missed signals")
+
     print("🚀 Listening...")
-    await client.run_until_disconnected()
+
+    try:
+        await client.run_until_disconnected()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        print("⚠️ Sending stop message...")
+        try:
+            if not client.is_connected():
+                await client.connect()
+            await client.send_message(target_entity,
+                "🔴 BOT STOPPED\n"
+                "⚠️ Signal forwarding is paused.\n"
+                "🔁 Restart the bot."
+            )
+            print("✅ Stop message sent")
+        except Exception as e:
+            print("❌ Could not send stop message:", e)
+        finally:
+            await client.disconnect()
 
 # ================== RUN ==================
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("⚠️ Stopped by user (Ctrl+C)")

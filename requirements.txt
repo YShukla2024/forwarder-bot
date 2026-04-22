@@ -2,3 +2,4 @@ telethon
 pillow
 requests
 python-dotenv
+flask

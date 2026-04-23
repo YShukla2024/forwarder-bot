@@ -1,5 +1,12 @@
+import os  # ✅ sabse pehle
+import re
+import asyncio
+from datetime import datetime, timedelta, timezone
 from flask import Flask
 import threading
+from telethon import TelegramClient, events
+from telethon.sessions import StringSession
+from dotenv import load_dotenv
 
 app = Flask(__name__)
 
@@ -8,17 +15,10 @@ def home():
     return "Bot is running"
 
 def run_web():
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 8000))  # ✅ ab os available hai
     app.run(host="0.0.0.0", port=port)
-threading.Thread(target=run_web).start()
 
-import os
-import re
-import asyncio
-from datetime import datetime, timedelta, timezone
-from telethon import TelegramClient, events
-from telethon.sessions import StringSession
-from dotenv import load_dotenv
+threading.Thread(target=run_web, daemon=True).start()
 
 # ================== LOAD CONFIG ==================
 load_dotenv()
@@ -47,17 +47,18 @@ SOURCE_CHATS = [
     -1001428572098,
     -1001067365629,
     -1001548665510,
-    -1001821769537,  # TESLA TRADERS XAU
-    -1002365747286,  # Hifaz's Trading Club
-    -1001218056271,  # Sureshot FX
-    -1001588519179,  # SureShot GOLD
-    -1001381790914,  # Sureshot INDICES
-    -1001954127662,  # Sureshot VIP
-    -1001604836510,  # Trade4Grow
-    -1001886710177,  # FX FOREX TECH
-    -1002053336035,  # Forex Free Signals
-    -1001805719691,  # All Market Signals
-    -5277876817      # Gold Signal Test
+    -1001821769537,
+    -1002365747286,
+    -1001218056271,
+    -1001588519179,
+    -1001381790914,
+    -1001954127662,
+    -1001604836510,
+    -1001886710177,
+    -1002053336035,
+    -1001805719691,
+    -1001875148578,  # FG FOREX GOLD
+    -5277876817
 ]
 
 PRINT_ALL_MESSAGES = True
@@ -110,7 +111,7 @@ def is_signal(text):
     return bool(has_direction and has_trade_info)
 
 # ================== DEBUG LOGGER ==================
-@client.on(events.NewMessage)  # ✅ no incoming filter
+@client.on(events.NewMessage)
 async def debug_logger(event):
     if PRINT_ALL_MESSAGES:
         try:
@@ -159,7 +160,7 @@ async def cmd_check(event):
     )
 
 # ================== MAIN HANDLER ==================
-@client.on(events.NewMessage)  # ✅ no incoming filter — apne messages bhi process honge
+@client.on(events.NewMessage)
 async def handler(event):
     try:
         chat_id = event.chat_id
@@ -171,7 +172,6 @@ async def handler(event):
         if not raw_text.strip():
             return
 
-        # ❌ Skip command messages
         if raw_text.startswith("/"):
             return
 
@@ -212,7 +212,6 @@ async def main():
         except Exception as e:
             print("❌ Send failed:", e)
 
-    # ✅ Recover missed messages from last 30 mins
     print("🔄 Checking missed messages (last 30 mins)...")
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
     recovered = 0

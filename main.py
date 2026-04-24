@@ -1,4 +1,4 @@
-import os  # ✅ sabse pehle
+import os
 import re
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -7,7 +7,9 @@ import threading
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from dotenv import load_dotenv
+from normalizer import normalize_text, parse_signal, format_signal, is_valid_signal
 
+# ================== FLASK KEEPALIVE ==================
 app = Flask(__name__)
 
 @app.route('/')
@@ -15,7 +17,7 @@ def home():
     return "Bot is running"
 
 def run_web():
-    port = int(os.environ.get("PORT", 8000))  # ✅ ab os available hai
+    port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
 
 threading.Thread(target=run_web, daemon=True).start()
@@ -31,11 +33,13 @@ session_string = os.getenv("SESSION_STRING")
 target_group_raw = os.getenv("TARGET_GROUP_ID")
 target_group = int(target_group_raw) if target_group_raw.startswith("-100") else target_group_raw
 
+HEARTBEAT_INTERVAL = 30 * 60  # 30 minutes
+
 # ================== SETTINGS ==================
 
 SOURCE_CHATS = [
     -1001223812798,
-    -1002086907376,
+    -1002086907376, # XTREME FREE GOLD SIGNALS
     -1001540535352,
     -1001564046986,
     -1002116974051,
@@ -51,14 +55,19 @@ SOURCE_CHATS = [
     -1002365747286,
     -1001218056271,
     -1001588519179,
-    -1001381790914,
-    -1001954127662,
+    -1001381790914, # Sureshot INDICES
+    -1001954127662, # Sureshot FX Vip
     -1001604836510,
     -1001886710177,
     -1002053336035,
     -1001805719691,
-    -1001875148578,  # FG FOREX GOLD
-    -5277876817
+    -1001875148578, # FG FOREX GOLD
+    -1002762751030, # VASILY TRADER
+    -1001590096134, # Gold Trader Avi
+    -1002375711533, # David's Gold Strategy
+    -1002685861814, # AURICVERSE GOLD
+    -1001310831497, # TRADE WITH AHSAN
+    -5277876817      # Gold Signal Test
 ]
 
 PRINT_ALL_MESSAGES = True
@@ -66,26 +75,22 @@ SEND_TEST_ON_START = True
 
 client = TelegramClient(StringSession(session_string), api_id, api_hash)
 
-# ================== NORMALIZE ==================
-
-def normalize_text(text):
-    return (
-        text.replace("¹", "1")
-            .replace("²", "2")
-            .replace("³", "3")
-            .replace("⁴", "4")
-            .replace("⁵", "5")
-            .replace("⁶", "6")
-            .replace("⁷", "7")
-            .replace("⁸", "8")
-            .replace("⁹", "9")
-            .replace("：", " ")
-            .replace("–", "-")
-            .replace("—", "-")
-    )
+# ================== HEARTBEAT ==================
+async def send_heartbeat(target_entity):
+    while True:
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
+        try:
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            await client.send_message(target_entity,
+                f"💓 BOT ALIVE\n"
+                f"📡 Monitoring {len(SOURCE_CHATS)} groups\n"
+                f"🕐 {now}"
+            )
+            print(f"💓 Heartbeat sent at {now}")
+        except Exception as e:
+            print(f"❌ Heartbeat failed: {e}")
 
 # ================== SIGNAL CHECKER ==================
-
 def is_signal(text):
     if not text:
         return False
@@ -103,8 +108,10 @@ def is_signal(text):
         return False
 
     has_direction = re.search(r'\b(BUY|SELL)\b', t)
+
+    # ✅ removed \b before TP/SL — handles TP1, SL_, SL4708
     has_trade_info = re.search(
-        r'\b(TP|SL|PIPS?|TAKE\s*PROFIT|STOP\s*LOSS|STOPLOSS|TAKEPROFIT)\b',
+        r'(TP|SL|PIPS?|TAKE\s*PROFIT|STOP\s*LOSS|STOPLOSS|TAKEPROFIT)',
         t
     )
 
@@ -153,10 +160,16 @@ async def cmd_check(event):
     test_text = event.pattern_match.group(1)
     normalized = normalize_text(test_text)
     result = is_signal(normalized)
+    parsed = parse_signal(test_text)
     await event.reply(
         f"📝 Input: {test_text}\n"
         f"🔄 Normalized: {normalized}\n"
-        f"{'✅ WOULD FORWARD' if result else '❌ WOULD BE FILTERED'}"
+        f"{'✅ WOULD FORWARD' if result else '❌ WOULD BE FILTERED'}\n\n"
+        f"📊 Parsed:\n"
+        f"Type: {parsed['type']}\n"
+        f"Entry: {parsed['entry']}\n"
+        f"TP: {parsed['tp']}\n"
+        f"SL: {parsed['sl']}"
     )
 
 # ================== MAIN HANDLER ==================
@@ -180,8 +193,19 @@ async def handler(event):
         if not is_signal(text):
             return
 
-        await client.send_message(target_group, text)
-        print(f"✅ Forwarded from {chat_id}")
+        # ✅ Parse and format cleanly
+        # ✅ Parse and format cleanly
+        data = parse_signal(text)
+
+        if not data["type"] or not data["entry"]:
+            # Fallback — forward as-is if parse fails
+            await client.send_message(target_group, text)
+            print(f"✅ Forwarded (raw) from {chat_id}")
+            return
+
+        output = format_signal(data)
+        await client.send_message(target_group, output)
+        print(f"✅ Forwarded (clean) from {chat_id}")
 
     except Exception as e:
         print("❌ Error:", e)
@@ -212,6 +236,7 @@ async def main():
         except Exception as e:
             print("❌ Send failed:", e)
 
+    # ✅ Recover missed messages
     print("🔄 Checking missed messages (last 30 mins)...")
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
     recovered = 0
@@ -238,6 +263,10 @@ async def main():
         print("✅ No missed signals found")
     else:
         print(f"📬 Recovered {recovered} missed signals")
+
+    # ✅ Start heartbeat
+    asyncio.ensure_future(send_heartbeat(target_entity))
+    print("💓 Heartbeat started (every 30 mins)")
 
     print("🚀 Listening...")
 

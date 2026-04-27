@@ -48,7 +48,6 @@ SOURCE_CHATS = [
     -1001897903474,
     -1002284339674,
     -1001746260985,
-    -1001428572098,
     -1001067365629,
     -1001548665510,
     -1001821769537,
@@ -116,6 +115,41 @@ def is_signal(text):
     )
 
     return bool(has_direction and has_trade_info)
+
+# ================== HELPER FUNCTIONS ==================
+async def get_chat_name(chat_id):
+    """Retrieve the name of a chat/channel by its ID."""
+    try:
+        entity = await client.get_entity(chat_id)
+        return entity.title or entity.first_name or str(chat_id)
+    except Exception as e:
+        print(f"⚠️ Could not get chat name for {chat_id}: {e}")
+        return f"Chat_{chat_id}"
+
+
+def log_signal(source_chat_id, source_chat_name, symbol, type_, entry, tp, sl, raw_text, missed=False):
+    """Log trading signal to file."""
+    try:
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "source_chat_id": source_chat_id,
+            "source_chat_name": source_chat_name,
+            "symbol": symbol,
+            "type": type_,
+            "entry": entry,
+            "tp": tp,
+            "sl": sl,
+            "raw_text": raw_text,
+            "missed": missed
+        }
+        
+        with open("signals.log", "a") as f:
+            import json
+            f.write(json.dumps(log_entry) + "\n")
+        
+        print(f"📝 Logged signal: {symbol} {type_}")
+    except Exception as e:
+        print(f"❌ Logging error: {e}")
 
 # ================== DEBUG LOGGER ==================
 @client.on(events.NewMessage)
@@ -193,23 +227,36 @@ async def handler(event):
         if not is_signal(text):
             return
 
-        # ✅ Parse and format cleanly
-        # ✅ Parse and format cleanly
         data = parse_signal(text)
+        chat_name = await get_chat_name(chat_id)
 
         if not data["type"] or not data["entry"]:
-            # Fallback — forward as-is if parse fails
             await client.send_message(target_group, text)
+            log_signal(chat_id, chat_name, data["symbol"], data["type"],
+                      data["entry"], data["tp"], data["sl"], raw_text)
             print(f"✅ Forwarded (raw) from {chat_id}")
             return
 
-        output = format_signal(data)
+        # ✅ Pass chat_name to format_signal
+        output = format_signal(data, source=chat_name)
         await client.send_message(target_group, output)
+
+        log_signal(
+            source_chat_id=chat_id,
+            source_chat_name=chat_name,
+            symbol=data["symbol"],
+            type_=data["type"],
+            entry=data["entry"],
+            tp=data["tp"],
+            sl=data["sl"],
+            raw_text=raw_text,
+            missed=False
+        )
+
         print(f"✅ Forwarded (clean) from {chat_id}")
 
     except Exception as e:
         print("❌ Error:", e)
-
 # ================== MAIN ==================
 async def main():
     await client.start()

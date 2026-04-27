@@ -100,29 +100,40 @@ def parse_signal(text: str) -> dict:
         result["type"] = "SELL"
 
     # ================== ENTRY ==================
+    # Format 1: BUY 4688 or BUY: 4688-4686 or SELL NOW 4700
     entry_match = re.search(
-        r'\b(BUY|SELL)\s*(?:NOW|LIMIT|ZONE)?\s*'
+        r'\b(BUY|SELL)\s*(?:NOW|LIMIT|ZONE)?\s*[:\-]?\s*'
         r'([\d]{4,}(?:\.\d+)?)(?:\s*[-/]\s*([\d]{4,}(?:\.\d+)?))?',
         upper
     )
+    # Format 2: Entry Buy : 4688 or Entry : 4688
+    entry_keyword_match = re.search(
+        r'ENTRY\s*(?:BUY|SELL)?\s*[:\-]?\s*'
+        r'([\d]{4,}(?:\.\d+)?)(?:\s*[-/]\s*([\d]{4,}(?:\.\d+)?))?',
+        upper
+    )
+    # Format 3: Zone 4785 - 4787
     zone_match = re.search(
-        r'(?:ZONE|ENTRY)\s*([\d]{4,}(?:\.\d+)?)\s*[-–]\s*([\d]{4,}(?:\.\d+)?)',
+        r'(?:ZONE)\s*([\d]{4,}(?:\.\d+)?)\s*[-–]\s*([\d]{4,}(?:\.\d+)?)',
         upper
     )
 
     if entry_match:
         result["entry"] = entry_match.group(2)
+    elif entry_keyword_match:
+        result["entry"] = entry_keyword_match.group(1)  # ✅ Entry Buy : 4688
     elif zone_match:
         result["entry"] = zone_match.group(1)
 
+    # Format 4: @4786
     if not result["entry"]:
         at_match = re.search(r'@\s*([\d]{4,}(?:\.\d+)?)', upper)
         if at_match:
             result["entry"] = at_match.group(1)
 
     # ================== TP ==================
-    # ✅ separator optional — handles TP14686 (after superscript normalize)
-    # ✅ _ added — handles SL_ 4708
+    # ✅ separator optional — handles TP14686 after superscript normalize
+    # ✅ _ added — handles SL_ format
     tp_matches = re.findall(
         r'\bTP\s*\d*\s*[:\-\.\s_]?\s*([\d]{4,}(?:\.\d+)?)',
         upper
@@ -140,8 +151,7 @@ def parse_signal(text: str) -> dict:
     result["tp"] = [float(tp) for tp in all_tp]
 
     # ================== SL ==================
-    # ✅ _ added — handles SL_ 4708
-    # ✅ separator optional — handles SL4708
+    # ✅ _ added, separator optional
     sl_match = re.search(
         r'\b(?:SL|STOPLOSS|STOP\s*LOSS)\s*[:\-\.\s_]?\s*([\d]{4,}(?:\.\d+)?)',
         upper
@@ -151,13 +161,15 @@ def parse_signal(text: str) -> dict:
 
     return result
 
-def format_signal(data: dict) -> str:
+def format_signal(data: dict, source: str = None) -> str:
     lines = []
     lines.append(f"{data['type']} {data['symbol']} {data['entry'] or 'N/A'}")
     if data["tp"]:
         lines.append(f"TP {clean_number(data['tp'][0])}")
     if data["sl"]:
         lines.append(f"SL {clean_number(data['sl'])}")
+    if source:
+        lines.append(f"Source: {source}")  # ✅ group name
     return "\n".join(lines)
 
 def is_valid_signal(data: dict) -> bool:

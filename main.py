@@ -106,9 +106,21 @@ def is_signal(text):
     if "TRADE EXECUTED" in t:
         return False
 
-    has_direction = re.search(r'\b(BUY|SELL)\b', t)
+    # ✅ Ignore TP hit / profit done messages
+    if "HIT" in t:
+        return False
+    if "PROFIT DONE" in t or "PROFIT BOOKED" in t:
+        return False
+    if "PIPS PROFIT" in t or "PIPS DONE" in t:
+        return False
+    if "TARGET HIT" in t or "TARGET ACHIEVED" in t:
+        return False
+    if "TP HIT" in t or "SL HIT" in t:
+        return False
+    if "CLOSED" in t and "PROFIT" in t:
+        return False
 
-    # ✅ removed \b before TP/SL — handles TP1, SL_, SL4708
+    has_direction = re.search(r'\b(BUY|SELL)\b', t)
     has_trade_info = re.search(
         r'(TP|SL|PIPS?|TAKE\s*PROFIT|STOP\s*LOSS|STOPLOSS|TAKEPROFIT)',
         t

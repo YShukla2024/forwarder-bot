@@ -100,6 +100,7 @@ def is_signal(text):
         return False
     t = text.upper()
 
+    # ❌ EA/broker execution messages
     if "TRADE TYPE:" in t:
         return False
     if "UPDATE STOP LOSS" in t or "UPDATE TAKE PROFIT" in t:
@@ -111,7 +112,7 @@ def is_signal(text):
     if "TRADE EXECUTED" in t:
         return False
 
-    # ✅ Ignore TP hit / profit done messages
+    # ❌ TP hit / profit done messages
     if "HIT" in t:
         return False
     if "PROFIT DONE" in t or "PROFIT BOOKED" in t:
@@ -123,6 +124,48 @@ def is_signal(text):
     if "TP HIT" in t or "SL HIT" in t:
         return False
     if "CLOSED" in t and "PROFIT" in t:
+        return False
+
+    # ❌ "Running in profit / smooth / lock in gains" messages  ✅ NEW
+    if "IN PROFIT" in t:
+        return False
+    if "LOCK IN" in t or "LOCK PROFIT" in t:
+        return False
+    if "BREAKEVEN" in t or "BREAK EVEN" in t:
+        return False
+    if "RUNNING SMOOTH" in t or "SETUP RUNNING" in t:
+        return False
+    if "CLOSE HALF" in t or "HALF PROFIT" in t:
+        return False
+
+    # ❌ Pending order / ticket execution messages  ✅ NEW
+    if "TICKET:" in t or "TICKET #" in t:
+        return False
+    if "NEW EXECUTION" in t:
+        return False
+    if "PENDING" in t and "LOTS:" in t:
+        return False
+    if "POSITION VALUE" in t:
+        return False
+    if "SELL STOP" in t or "BUY STOP" in t:
+        return False
+    if "SELL LIMIT" in t or "BUY LIMIT" in t and "LOTS:" in t:
+        return False
+
+    # ❌ Account status / balance messages  ✅ NEW
+    if "BALANCE:" in t and "EQUITY:" in t:
+        return False
+    if "FLOATING:" in t:
+        return False
+    if "STATUS UPDATE" in t:
+        return False
+    if "ACCOUNT BALANCE" in t:
+        return False
+
+    # ❌ PIPS result messages  ✅ NEW
+    if "PIPS" in t and ("+" in t or "-" in t) and ("SELL-" in t or "BUY-" in t):
+        return False
+    if re.search(r'[+-]\d+\s*PIPS', t):
         return False
 
     has_direction = re.search(r'\b(BUY|SELL)\b', t)

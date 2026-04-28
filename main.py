@@ -1,6 +1,7 @@
 import os
 import re
 import asyncio
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from flask import Flask
 import threading
@@ -98,7 +99,9 @@ async def send_heartbeat(target_entity):
 def is_signal(text):
     if not text:
         return False
-    t = text.upper()
+    
+    # Normalize Unicode characters (converts fancy Unicode to ASCII equivalents)
+    t = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii').upper()
 
     # ❌ EA/broker execution messages
     if "TRADE TYPE:" in t:

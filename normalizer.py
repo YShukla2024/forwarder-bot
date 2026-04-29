@@ -100,30 +100,43 @@ def parse_signal(text: str) -> dict:
         result["type"] = "SELL"
 
     # ================== ENTRY ==================
-    # Format 1: BUY 4688 or BUY: 4688-4686 or SELL NOW 4700
     entry_match = re.search(
         r'\b(BUY|SELL)\s*(?:NOW|LIMIT|ZONE)?\s*[:\-]?\s*'
         r'([\d]{4,}(?:\.\d+)?)(?:\s*[-/]\s*([\d]{4,}(?:\.\d+)?))?',
         upper
     )
-    # Format 2: Entry Buy : 4688 or Entry : 4688
     entry_keyword_match = re.search(
         r'ENTRY\s*(?:BUY|SELL)?\s*[:\-]?\s*'
         r'([\d]{4,}(?:\.\d+)?)(?:\s*[-/]\s*([\d]{4,}(?:\.\d+)?))?',
         upper
     )
-    # Format 3: Zone 4785 - 4787
     zone_match = re.search(
         r'(?:ZONE)\s*([\d]{4,}(?:\.\d+)?)\s*[-–]\s*([\d]{4,}(?:\.\d+)?)',
         upper
     )
 
     if entry_match:
-        result["entry"] = entry_match.group(2)
+        val1 = float(entry_match.group(2))
+        val2 = entry_match.group(3)
+        if val2:
+            # ✅ Range — take average and round to nearest whole number
+            avg = (val1 + float(val2)) / 2
+            result["entry"] = str(round(avg))
+        else:
+            result["entry"] = entry_match.group(2)
     elif entry_keyword_match:
-        result["entry"] = entry_keyword_match.group(1)  # ✅ Entry Buy : 4688
+        val1 = float(entry_keyword_match.group(1))
+        val2 = entry_keyword_match.group(2)
+        if val2:
+            avg = (val1 + float(val2)) / 2
+            result["entry"] = str(round(avg))
+        else:
+            result["entry"] = entry_keyword_match.group(1)
     elif zone_match:
-        result["entry"] = zone_match.group(1)
+        val1 = float(zone_match.group(1))
+        val2 = float(zone_match.group(2))
+        avg = (val1 + val2) / 2
+        result["entry"] = str(round(avg))  # ✅ average for zone too
 
     # Format 4: @4786
     if not result["entry"]:

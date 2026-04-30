@@ -67,7 +67,7 @@ SOURCE_CHATS = [
     -1002214622470,
     -1001821969165,
     -1001560921264,
-    -1002145284660, #Steven Signal | Live 💰💰💰
+   # -1002145284660, #Steven Signal | Live 💰💰💰
     -1001228254806, #Traders Paradise Live
     -1001782503005,#GBP/JPY FOREX
     -1001943914831, # 𝑵𝒂𝒔𝒅𝒂𝒒 𝒎𝒂𝒔𝒕𝒆𝒓𝒔

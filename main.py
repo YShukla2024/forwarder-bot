@@ -26,9 +26,9 @@ threading.Thread(target=run_web, daemon=True).start()
 # ================== LOAD CONFIG ==================
 load_dotenv()
 
-api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
-phone = os.getenv("PHONE")
+api_id        = int(os.getenv("API_ID"))
+api_hash      = os.getenv("API_HASH")
+phone         = os.getenv("PHONE")
 session_string = os.getenv("SESSION_STRING")
 
 target_group_raw = os.getenv("TARGET_GROUP_ID")
@@ -37,7 +37,6 @@ target_group = int(target_group_raw) if target_group_raw.startswith("-100") else
 HEARTBEAT_INTERVAL = 30 * 60  # 30 minutes
 
 # ================== SETTINGS ==================
-
 SOURCE_CHATS = [
     -1001223812798,
     -1002086907376, # XTREME FREE GOLD SIGNALS
@@ -64,12 +63,12 @@ SOURCE_CHATS = [
     -1002214622470,
     -1001821969165,
     -1001560921264,
-    -1001325493987, #GOLD TRADER
-    -1001477403711, #TRADE WITH AARO
-    -1002145284660, #Steven Signal | Live 💰💰💰
-    -1001228254806, #Traders Paradise Live
-    -1001782503005, #GBP/JPY FOREX
-    -1001943914831, # 𝑵𝒂𝒔𝒅𝒂𝒒 𝒎𝒂𝒔𝒕𝒆𝒓𝒔
+    -1001325493987, # GOLD TRADER
+    -1001477403711, # TRADE WITH AARO
+    -1002145284660, # Steven Signal | Live
+    -1001228254806, # Traders Paradise Live
+    -1001782503005, # GBP/JPY FOREX
+    -1001943914831, # Nasdaq masters
     -1002057625630, # FOREX TRADING SIGNAL
     -1001875148578, # FG FOREX GOLD
     -1002762751030, # VASILY TRADER
@@ -77,13 +76,14 @@ SOURCE_CHATS = [
     -1002375711533, # David's Gold Strategy
     -1002685861814, # AURICVERSE GOLD
     -1001310831497, # TRADE WITH AHSAN
-    -5277876817      # Gold Signal Test
+    -5277876817,    # Gold Signal Test
 ]
 
 PRINT_ALL_MESSAGES = True
 SEND_TEST_ON_START = True
 
 client = TelegramClient(StringSession(session_string), api_id, api_hash)
+
 
 # ================== HEARTBEAT ==================
 async def send_heartbeat(target_entity):
@@ -100,93 +100,52 @@ async def send_heartbeat(target_entity):
         except Exception as e:
             print(f"❌ Heartbeat failed: {e}")
 
+
 # ================== SIGNAL CHECKER ==================
 def is_signal(text):
     if not text:
         return False
-    
-    # Normalize Unicode characters (converts fancy Unicode to ASCII equivalents)
+
     t = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii').upper()
 
-    # ❌ EA/broker execution messages
-    if "TRADE TYPE:" in t:
-        return False
-    if "UPDATE STOP LOSS" in t or "UPDATE TAKE PROFIT" in t:
-        return False
-    if "TRADE CLOSED" in t or "POINTS MOVED" in t:
-        return False
-    if "NEW STOP LOSS:" in t or "NEW TAKE PROFIT:" in t:
-        return False
-    if "TRADE EXECUTED" in t:
-        return False
+    if "TRADE TYPE:" in t:                                        return False
+    if "UPDATE STOP LOSS" in t or "UPDATE TAKE PROFIT" in t:     return False
+    if "TRADE CLOSED" in t or "POINTS MOVED" in t:               return False
+    if "NEW STOP LOSS:" in t or "NEW TAKE PROFIT:" in t:         return False
+    if "TRADE EXECUTED" in t:                                     return False
+    if "HIT" in t:                                                return False
+    if "PROFIT DONE" in t or "PROFIT BOOKED" in t:               return False
+    if "PIPS PROFIT" in t or "PIPS DONE" in t:                   return False
+    if "TARGET HIT" in t or "TARGET ACHIEVED" in t:              return False
+    if "TP HIT" in t or "SL HIT" in t:                           return False
+    if "CLOSED" in t and "PROFIT" in t:                           return False
+    if "IN PROFIT" in t:                                          return False
+    if "LOCK IN" in t or "LOCK PROFIT" in t:                     return False
+    if "BREAKEVEN" in t or "BREAK EVEN" in t:                    return False
+    if "RUNNING SMOOTH" in t or "SETUP RUNNING" in t:            return False
+    if "CLOSE HALF" in t or "HALF PROFIT" in t:                  return False
+    if "TICKET:" in t or "TICKET #" in t:                        return False
+    if "NEW EXECUTION" in t:                                      return False
+    if "PENDING" in t and "LOTS:" in t:                           return False
+    if "POSITION VALUE" in t:                                     return False
+    if "SELL STOP" in t or "BUY STOP" in t:                      return False
+    if "SELL LIMIT" in t or ("BUY LIMIT" in t and "LOTS:" in t): return False
+    if "BALANCE:" in t and "EQUITY:" in t:                        return False
+    if "FLOATING:" in t:                                          return False
+    if "STATUS UPDATE" in t:                                      return False
+    if "ACCOUNT BALANCE" in t:                                    return False
+    if "PIPS" in t and ("+" in t or "-" in t) and ("SELL-" in t or "BUY-" in t): return False
+    if re.search(r'[+-]\d+\s*PIPS', t):                           return False
 
-    # ❌ TP hit / profit done messages
-    if "HIT" in t:
-        return False
-    if "PROFIT DONE" in t or "PROFIT BOOKED" in t:
-        return False
-    if "PIPS PROFIT" in t or "PIPS DONE" in t:
-        return False
-    if "TARGET HIT" in t or "TARGET ACHIEVED" in t:
-        return False
-    if "TP HIT" in t or "SL HIT" in t:
-        return False
-    if "CLOSED" in t and "PROFIT" in t:
-        return False
-
-    # ❌ "Running in profit / smooth / lock in gains" messages  ✅ NEW
-    if "IN PROFIT" in t:
-        return False
-    if "LOCK IN" in t or "LOCK PROFIT" in t:
-        return False
-    if "BREAKEVEN" in t or "BREAK EVEN" in t:
-        return False
-    if "RUNNING SMOOTH" in t or "SETUP RUNNING" in t:
-        return False
-    if "CLOSE HALF" in t or "HALF PROFIT" in t:
-        return False
-
-    # ❌ Pending order / ticket execution messages  ✅ NEW
-    if "TICKET:" in t or "TICKET #" in t:
-        return False
-    if "NEW EXECUTION" in t:
-        return False
-    if "PENDING" in t and "LOTS:" in t:
-        return False
-    if "POSITION VALUE" in t:
-        return False
-    if "SELL STOP" in t or "BUY STOP" in t:
-        return False
-    if "SELL LIMIT" in t or "BUY LIMIT" in t and "LOTS:" in t:
-        return False
-
-    # ❌ Account status / balance messages  ✅ NEW
-    if "BALANCE:" in t and "EQUITY:" in t:
-        return False
-    if "FLOATING:" in t:
-        return False
-    if "STATUS UPDATE" in t:
-        return False
-    if "ACCOUNT BALANCE" in t:
-        return False
-
-    # ❌ PIPS result messages  ✅ NEW
-    if "PIPS" in t and ("+" in t or "-" in t) and ("SELL-" in t or "BUY-" in t):
-        return False
-    if re.search(r'[+-]\d+\s*PIPS', t):
-        return False
-
-    has_direction = re.search(r'\b(BUY|SELL)\b', t)
+    has_direction  = re.search(r'\b(BUY|SELL)\b', t)
     has_trade_info = re.search(
-        r'(TP|SL|PIPS?|TAKE\s*PROFIT|STOP\s*LOSS|STOPLOSS|TAKEPROFIT)',
-        t
+        r'(TP|SL|PIPS?|TAKE\s*PROFIT|STOP\s*LOSS|STOPLOSS|TAKEPROFIT|TARGET)', t
     )
-
     return bool(has_direction and has_trade_info)
 
-# ================== HELPER FUNCTIONS ==================
+
+# ================== HELPERS ==================
 async def get_chat_name(chat_id):
-    """Retrieve the name of a chat/channel by its ID."""
     try:
         entity = await client.get_entity(chat_id)
         return entity.title or entity.first_name or str(chat_id)
@@ -196,28 +155,26 @@ async def get_chat_name(chat_id):
 
 
 def log_signal(source_chat_id, source_chat_name, symbol, type_, entry, tp, sl, raw_text, missed=False):
-    """Log trading signal to file."""
     try:
+        import json
         log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "source_chat_id": source_chat_id,
+            "timestamp":        datetime.now().isoformat(),
+            "source_chat_id":   source_chat_id,
             "source_chat_name": source_chat_name,
-            "symbol": symbol,
-            "type": type_,
-            "entry": entry,
-            "tp": tp,
-            "sl": sl,
-            "raw_text": raw_text,
-            "missed": missed
+            "symbol":           symbol,
+            "type":             type_,
+            "entry":            entry,
+            "tp":               tp,
+            "sl":               sl,
+            "raw_text":         raw_text,
+            "missed":           missed,
         }
-        
         with open("signals.log", "a") as f:
-            import json
             f.write(json.dumps(log_entry) + "\n")
-        
-        print(f"📝 Logged signal: {symbol} {type_}")
+        print(f"📝 Logged: {symbol} {type_}")
     except Exception as e:
         print(f"❌ Logging error: {e}")
+
 
 # ================== DEBUG LOGGER ==================
 @client.on(events.NewMessage)
@@ -227,26 +184,25 @@ async def debug_logger(event):
             chat = await event.get_chat()
             print("\n📩 NEW MESSAGE")
             print("CHAT:", getattr(chat, "title", "Unknown"))
-            print("ID:", event.chat_id)
+            print("ID:  ", event.chat_id)
             print("TEXT:", event.message.message)
             print("-" * 50)
         except Exception as e:
             print("❌ Debug error:", e)
 
-# ================== COMMAND HANDLER ==================
+
+# ================== COMMAND HANDLERS ==================
 @client.on(events.NewMessage(outgoing=True, pattern=r'^/test$'))
 async def cmd_test(event):
     try:
         await client.send_message(target_group,
-            "🧪 TEST SIGNAL\n"
-            "XAUUSD BUY 1900\n"
-            "TP1: 1910\n"
-            "SL: 1890"
+            "🧪 TEST SIGNAL\nXAUUSD BUY 1900\nTP1: 1910\nSL: 1890"
         )
-        await event.reply("✅ Test signal sent to target group!")
+        await event.reply("✅ Test signal sent!")
         print("🧪 Manual test triggered")
     except Exception as e:
         await event.reply(f"❌ Test failed: {e}")
+
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^/status$'))
 async def cmd_status(event):
@@ -255,76 +211,72 @@ async def cmd_status(event):
         f"📋 Monitoring {len(SOURCE_CHATS)} source groups\n"
         f"🎯 Target: {target_group}"
     )
-    print("📊 Status check triggered")
+
 
 @client.on(events.NewMessage(outgoing=True, pattern=r'^/check (.+)'))
 async def cmd_check(event):
-    test_text = event.pattern_match.group(1)
+    test_text  = event.pattern_match.group(1)
     normalized = normalize_text(test_text)
-    result = is_signal(normalized)
-    parsed = parse_signal(test_text)
+    result     = is_signal(normalized)
+    parsed     = parse_signal(test_text)
+    preview    = format_signal(parsed, source="[check]") if result else "❌ Would be filtered"
+
     await event.reply(
         f"📝 Input: {test_text}\n"
         f"🔄 Normalized: {normalized}\n"
         f"{'✅ WOULD FORWARD' if result else '❌ WOULD BE FILTERED'}\n\n"
         f"📊 Parsed:\n"
-        f"Type: {parsed['type']}\n"
-        f"Entry: {parsed['entry']}\n"
-        f"TP: {parsed['tp']}\n"
-        f"SL: {parsed['sl']}"
+        f"  Symbol: {parsed.get('symbol', 'N/A')}\n"
+        f"  Type:   {parsed['type']}\n"
+        f"  Entry:  {parsed['entry']}\n"
+        f"  TP:     {parsed['tp']}\n"
+        f"  SL:     {parsed['sl'] or '(auto ~$10)'}\n\n"
+        f"📤 Preview:\n{preview}"
     )
+
 
 # ================== MAIN HANDLER ==================
 @client.on(events.NewMessage)
 async def handler(event):
     try:
         chat_id = event.chat_id
-
         if chat_id not in SOURCE_CHATS:
             return
 
         raw_text = event.message.message or ""
-        if not raw_text.strip():
-            return
-
-        if raw_text.startswith("/"):
+        if not raw_text.strip() or raw_text.startswith("/"):
             return
 
         text = normalize_text(raw_text)
-
         if not is_signal(text):
             return
 
-        data = parse_signal(text)
+        data      = parse_signal(text)
         chat_name = await get_chat_name(chat_id)
 
         if not data["type"] or not data["entry"]:
             await client.send_message(target_group, text)
-            log_signal(chat_id, chat_name, data["symbol"], data["type"],
-                      data["entry"], data["tp"], data["sl"], raw_text)
+            log_signal(chat_id, chat_name, data.get("symbol"), data["type"],
+                       data["entry"], data["tp"], data["sl"], raw_text)
             print(f"✅ Forwarded (raw) from {chat_id}")
             return
 
-        # ✅ Pass chat_name to format_signal
+        # format_signal handles missing SL automatically (~$10 default)
         output = format_signal(data, source=chat_name)
         await client.send_message(target_group, output)
 
         log_signal(
-            source_chat_id=chat_id,
-            source_chat_name=chat_name,
-            symbol=data["symbol"],
-            type_=data["type"],
-            entry=data["entry"],
-            tp=data["tp"],
-            sl=data["sl"],
-            raw_text=raw_text,
-            missed=False
+            source_chat_id=chat_id, source_chat_name=chat_name,
+            symbol=data.get("symbol"), type_=data["type"],
+            entry=data["entry"], tp=data["tp"], sl=data["sl"],
+            raw_text=raw_text, missed=False,
         )
-
         print(f"✅ Forwarded (clean) from {chat_id}")
 
     except Exception as e:
         print("❌ Error:", e)
+
+
 # ================== MAIN ==================
 async def main():
     await client.start()
@@ -343,17 +295,17 @@ async def main():
     if SEND_TEST_ON_START:
         try:
             await client.send_message(target_entity,
-                "🟢 BOT STARTED\n"
-                "📡 Listening to signal sources...\n"
+                f"🟢 BOT STARTED\n"
+                f"📡 Listening to signal sources...\n"
                 f"📋 Monitoring {len(SOURCE_CHATS)} groups"
             )
             print("✅ Start message sent")
         except Exception as e:
             print("❌ Send failed:", e)
 
-    # ✅ Recover missed messages
+    # Recover missed messages (last 30 mins)
     print("🔄 Checking missed messages (last 30 mins)...")
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    cutoff    = datetime.now(timezone.utc) - timedelta(minutes=30)
     recovered = 0
 
     for chat_id in SOURCE_CHATS:
@@ -365,24 +317,20 @@ async def main():
                     continue
                 text = normalize_text(msg.text)
                 if is_signal(text):
-                    await client.send_message(target_group,
-                        f"📬 MISSED SIGNAL\n\n{text}"
-                    )
+                    data      = parse_signal(text)
+                    chat_name = await get_chat_name(chat_id)
+                    output    = format_signal(data, source=chat_name)
+                    await client.send_message(target_group, f"📬 MISSED SIGNAL\n\n{output}")
                     recovered += 1
                     print(f"📬 Recovered from {chat_id}")
                     await asyncio.sleep(1)
         except Exception as e:
             print(f"❌ Missed check failed {chat_id}: {e}")
 
-    if recovered == 0:
-        print("✅ No missed signals found")
-    else:
-        print(f"📬 Recovered {recovered} missed signals")
+    print(f"{'✅ No missed signals' if recovered == 0 else f'📬 Recovered {recovered} signals'}")
 
-    # ✅ Start heartbeat
     asyncio.ensure_future(send_heartbeat(target_entity))
     print("💓 Heartbeat started (every 30 mins)")
-
     print("🚀 Listening...")
 
     try:
@@ -395,15 +343,14 @@ async def main():
             if not client.is_connected():
                 await client.connect()
             await client.send_message(target_entity,
-                "🔴 BOT STOPPED\n"
-                "⚠️ Signal forwarding is paused.\n"
-                "🔁 Restart the bot."
+                "🔴 BOT STOPPED\n⚠️ Signal forwarding is paused.\n🔁 Restart the bot."
             )
             print("✅ Stop message sent")
         except Exception as e:
             print("❌ Could not send stop message:", e)
         finally:
             await client.disconnect()
+
 
 # ================== RUN ==================
 if __name__ == "__main__":

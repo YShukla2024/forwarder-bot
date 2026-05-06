@@ -37,11 +37,13 @@ target_group = int(target_group_raw) if target_group_raw.startswith("-100") else
 HEARTBEAT_INTERVAL = 30 * 60  # 30 minutes
 
 # ================== SETTINGS ==================
-SOURCE_CHATS = [
+
+SOURCES_FILE = "sources.json"
+
+DEFAULT_SOURCE_CHATS = [
     -1001223812798,
     -1002086907376,  # XTREME FREE GOLD SIGNALS
     -1001540535352,
-    -1001564046986,
     -1002184500107,
     -1003298681349,
     -1001897903474,
@@ -51,11 +53,15 @@ SOURCE_CHATS = [
     -1002365747286,
     -1001604836510,
     -1001886710177,
-    -1002518518156,
     -1002407499797,
     -1002214622470,
     -1001821969165,
     -1001560921264,
+    -1001414558402,  #School of trade
+    -1001389726384,  #Learn2Tradevip
+    -1001175415497,  #My Billion
+    -1002138960867,  #Smith 1000 Pips Gold SIGNALS
+    -1002200425625,  #Elite Trade Lab
     -1001325493987,  # GOLD TRADER
     -1001477403711,  # TRADE WITH AARO
     -1001782503005,  # GBP/JPY FOREX
@@ -70,6 +76,27 @@ SOURCE_CHATS = [
     -1001200882128,  # XTREME VIP Signals
     -5277876817,     # Gold Signal Test
 ]
+
+def load_sources() -> list:
+    """Load source chat IDs from file, fallback to defaults."""
+    import json
+    if os.path.exists(SOURCES_FILE):
+        try:
+            with open(SOURCES_FILE, "r") as f:
+                data = json.load(f)
+                return data.get("chats", DEFAULT_SOURCE_CHATS)
+        except Exception:
+            pass
+    return list(DEFAULT_SOURCE_CHATS)
+
+def save_sources(chats: list):
+    """Save source chat IDs to file."""
+    import json
+    with open(SOURCES_FILE, "w") as f:
+        json.dump({"chats": chats}, f, indent=2)
+
+# Load on startup — always use this instead of SOURCE_CHATS directly
+SOURCE_CHATS = load_sources()
 
 PRINT_ALL_MESSAGES = True
 SEND_TEST_ON_START = True
@@ -227,16 +254,58 @@ async def cmd_check(event):
     )
 
 
+
+# ================== CHAT MANAGEMENT COMMANDS ==================
+@client.on(events.NewMessage(pattern=r'^/addchat\s+(-?\d+)(?:\s+(.+))?$'))
+async def cmd_addchat(event):
+    global SOURCE_CHATS
+    chat_id = int(event.pattern_match.group(1))
+    label   = event.pattern_match.group(2) or ""
+    if chat_id in SOURCE_CHATS:
+        await client.send_message(target_group, f"⚠️ Already exists: {chat_id}")
+        return
+    SOURCE_CHATS.append(chat_id)
+    save_sources(SOURCE_CHATS)
+    await client.send_message(target_group, f"✅ Added: {chat_id} {label}\nTotal: {len(SOURCE_CHATS)} sources")
+    print(f"➕ Added source: {chat_id} {label}")
+
+@client.on(events.NewMessage(pattern=r'^/removechat\s+(-?\d+)$'))
+async def cmd_removechat(event):
+    global SOURCE_CHATS
+    chat_id = int(event.pattern_match.group(1))
+    if chat_id not in SOURCE_CHATS:
+        await client.send_message(target_group, f"❌ Not found: {chat_id}")
+        return
+    SOURCE_CHATS.remove(chat_id)
+    save_sources(SOURCE_CHATS)
+    await client.send_message(target_group, f"✅ Removed: {chat_id}\nTotal: {len(SOURCE_CHATS)} sources")
+    print(f"➖ Removed source: {chat_id}")
+
+@client.on(events.NewMessage(pattern=r'^/listchats$'))
+async def cmd_listchats(event):
+    if not SOURCE_CHATS:
+        await client.send_message(target_group, "📋 No source chats configured.")
+        return
+    lines = [f"📋 Source Chats ({len(SOURCE_CHATS)} total):\n"]
+    for i, cid in enumerate(SOURCE_CHATS, 1):
+        lines.append(f"{i}. {cid}")
+    await client.send_message(target_group, "\n".join(lines))
+
 # ================== MAIN HANDLER ==================
 @client.on(events.NewMessage)
 async def handler(event):
     try:
         chat_id = event.chat_id
-        if chat_id not in SOURCE_CHATS:
-            return
 
         raw_text = event.message.message or ""
-        if not raw_text.strip() or raw_text.startswith("/"):
+        if not raw_text.strip():
+            return
+
+        # Allow /addchat, /removechat, /listchats from anywhere
+        if raw_text.startswith("/"):
+            return
+
+        if chat_id not in SOURCE_CHATS:
             return
 
         text = normalize_text(raw_text)

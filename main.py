@@ -128,8 +128,8 @@ def is_signal(text):
     if "NEW EXECUTION" in t:                                      return False
     if "PENDING" in t and "LOTS:" in t:                           return False
     if "POSITION VALUE" in t:                                     return False
-    if "SELL STOP" in t or "BUY STOP" in t:                      return False
-    if "SELL LIMIT" in t or ("BUY LIMIT" in t and "LOTS:" in t): return False
+    if ("SELL STOP" in t or "BUY STOP" in t) and "LOTS:" in t:   return False
+    if ("SELL LIMIT" in t or "BUY LIMIT" in t) and "LOTS:" in t: return False
     if "BALANCE:" in t and "EQUITY:" in t:                        return False
     if "FLOATING:" in t:                                          return False
     if "STATUS UPDATE" in t:                                      return False

@@ -21,6 +21,11 @@ def normalize_text(text: str) -> str:
     # Step 4: Strip emojis — remove non-ASCII chars char by char safely
     # (avoid NFKD decomposition which corrupts chars near emojis)
     text = "".join(ch if ord(ch) < 128 else " " for ch in text)
+
+    # Step 5: Add spaces around keywords glued to numbers
+    # e.g. 4725SL → 4725 SL, 4707TP → 4707 TP, TP4735 → TP 4735
+    text = _re.sub(r'(\d)(SL|TP|BUY|SELL)', r'\1 \2', text, flags=_re.IGNORECASE)
+    text = _re.sub(r'(SL|TP)([\d])', r'\1 \2', text, flags=_re.IGNORECASE)
     return (
         text.replace("¹", "1")
             .replace("²", "2")
@@ -188,19 +193,27 @@ def parse_signal(text: str) -> dict:
 
     # ── TP ───────────────────────────────────────────────────────────
     tp_matches = re.findall(
-        r'\bTP\s*\d*\s*[:\-\.\s_]?\s*([\d]{2,}(?:\.\d+)?)', upper
+        r'\bTP\s*\d{0,2}\s*[:\-\.\s_]\s*([\d]{3,}(?:\.\d+)?)|\bTP\s*\d{0,2}\s+([\d]{3,}(?:\.\d+)?)', upper
     )
     takeprofit_matches = re.findall(
-        r'\bTAKEPROFIT\s*\d*\s*[:\-\.\s_]?\s*([\d]{2,}(?:\.\d+)?)', upper
+        r'\bTAKEPROFIT\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]{3,}(?:\.\d+)?)', upper
     )
     take_profit_matches = re.findall(
-        r'\bTAKE\s*PROFIT\s*\d*\s*[:\-\.\s_]?\s*([\d]{2,}(?:\.\d+)?)', upper
+        r'\bTAKE\s*PROFIT\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]{3,}(?:\.\d+)?)', upper
     )
     target_matches = re.findall(
-        r'\bTARGET\s*\d*\s*[:\-\.\s_]?\s*([\d]{2,}(?:\.\d+)?)', upper
+        r'\bTARGET\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]{3,}(?:\.\d+)?)', upper
     )
 
-    all_tp = tp_matches or takeprofit_matches or take_profit_matches or target_matches
+    # tp_matches may be list of tuples due to alternation groups — flatten
+    def flat(matches):
+        result = []
+        for m in matches:
+            val = (m[0] or m[1]) if isinstance(m, tuple) else m
+            if val: result.append(val)
+        return result
+
+    all_tp = flat(tp_matches) or flat(takeprofit_matches) or flat(take_profit_matches) or flat(target_matches)
     result["tp"] = [float(tp) for tp in all_tp]
 
     # ── SL ───────────────────────────────────────────────────────────

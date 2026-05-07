@@ -42,39 +42,44 @@ SOURCES_FILE = "sources.json"
 
 DEFAULT_SOURCE_CHATS = [
     -1001223812798,
-    -1002086907376,  # XTREME FREE GOLD SIGNALS
+    -1002086907376, # XTREME FREE GOLD SIGNALS
     -1001540535352,
+    -1001564046986,
+    -1002116974051,
     -1002184500107,
     -1003298681349,
     -1001897903474,
     -1002284339674,
     -1001746260985,
+    -1001067365629,
+    -1001548665510,
     -1001821769537,
     -1002365747286,
+    -1001218056271,
+    -1001381790914, # Sureshot INDICES
     -1001604836510,
     -1001886710177,
+    -1002053336035,
+    -1001805719691,
+    -1002518518156,
     -1002407499797,
     -1002214622470,
     -1001821969165,
     -1001560921264,
-    -1001414558402,  #School of trade
-    -1001389726384,  #Learn2Tradevip
-    -1001175415497,  #My Billion
-    -1002138960867,  #Smith 1000 Pips Gold SIGNALS
-    -1002200425625,  #Elite Trade Lab
-    -1001325493987,  # GOLD TRADER
-    -1001477403711,  # TRADE WITH AARO
-    -1001782503005,  # GBP/JPY FOREX
-    -1001943914831,  # Nasdaq masters
-    -1002057625630,  # FOREX TRADING SIGNAL
-    -1001875148578,  # FG FOREX GOLD
-    -1002762751030,  # VASILY TRADER
-    -1001590096134,  # Gold Trader Avi
-    -1002375711533,  # David's Gold Strategy
-    -1002685861814,  # AURICVERSE GOLD
-    -1001310831497,  # TRADE WITH AHSAN
-    -1001200882128,  # XTREME VIP Signals
-    -5277876817,     # Gold Signal Test
+    -1001325493987, # GOLD TRADER
+    -1001477403711, # TRADE WITH AARO
+    -1002145284660, # Steven Signal | Live
+    -1001228254806, # Traders Paradise Live
+    -1001782503005, # GBP/JPY FOREX
+    -1001943914831, # Nasdaq masters
+    -1002057625630, # FOREX TRADING SIGNAL
+    -1001875148578, # FG FOREX GOLD
+    -1002762751030, # VASILY TRADER
+    -1001590096134, # Gold Trader Avi
+    -1002375711533, # David's Gold Strategy
+    -1002685861814, # AURICVERSE GOLD
+    -1001310831497, # TRADE WITH AHSAN
+    -5277876817,    # Gold Signal Test
 ]
 
 def load_sources() -> list:
@@ -126,6 +131,14 @@ def is_signal(text):
         return False
 
     t = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii').upper()
+
+    # Fix common typos
+    t = t.replace('BUYY', 'BUY').replace('SELLL', 'SELL')
+    # Remove Telegram link format [text](url) → keep just text
+    import re as _re
+    t = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', t)
+    # Remove # from symbol hashtags
+    t = t.replace('#', '')
 
     if "TRADE TYPE:" in t:                                        return False
     if "UPDATE STOP LOSS" in t or "UPDATE TAKE PROFIT" in t:     return False

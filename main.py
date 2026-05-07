@@ -42,52 +42,65 @@ SOURCES_FILE = "sources.json"
 
 DEFAULT_SOURCE_CHATS = [
     -1001223812798,
-    -1002086907376,  # XTREME FREE GOLD SIGNALS
+    -1002086907376, # XTREME FREE GOLD SIGNALS
     -1001540535352,
+    -1001564046986,
+    -1002116974051,
     -1002184500107,
     -1003298681349,
     -1001897903474,
     -1002284339674,
     -1001746260985,
+    -1001067365629,
+    -1001548665510,
     -1001821769537,
     -1002365747286,
+    -1001218056271,
+    -1001381790914, # Sureshot INDICES
     -1001604836510,
     -1001886710177,
+    -1002053336035,
+    -1001805719691,
+    -1002518518156,
     -1002407499797,
     -1002214622470,
     -1001821969165,
     -1001560921264,
-    -1001414558402,  #School of trade
-    -1001389726384,  #Learn2Tradevip
-    -1001175415497,  #My Billion
-    -1002138960867,  #Smith 1000 Pips Gold SIGNALS
-    -1002200425625,  #Elite Trade Lab
-    -1001325493987,  # GOLD TRADER
-    -1001477403711,  # TRADE WITH AARO
-    -1001782503005,  # GBP/JPY FOREX
-    -1001943914831,  # Nasdaq masters
-    -1002057625630,  # FOREX TRADING SIGNAL
-    -1001875148578,  # FG FOREX GOLD
-    -1002762751030,  # VASILY TRADER
-    -1001590096134,  # Gold Trader Avi
-    -1002375711533,  # David's Gold Strategy
-    -1002685861814,  # AURICVERSE GOLD
-    -1001310831497,  # TRADE WITH AHSAN
-    -1001200882128,  # XTREME VIP Signals
-    -5277876817,     # Gold Signal Test
+    -1001325493987, # GOLD TRADER
+    -1001477403711, # TRADE WITH AARO
+    -1002145284660, # Steven Signal | Live
+    -1001228254806, # Traders Paradise Live
+    -1001782503005, # GBP/JPY FOREX
+    -1001943914831, # Nasdaq masters
+    -1002057625630, # FOREX TRADING SIGNAL
+    -1001875148578, # FG FOREX GOLD
+    -1002762751030, # VASILY TRADER
+    -1001590096134, # Gold Trader Avi
+    -1002375711533, # David's Gold Strategy
+    -1002685861814, # AURICVERSE GOLD
+    -1001310831497, # TRADE WITH AHSAN
+    -5277876817,    # Gold Signal Test
 ]
 
 def load_sources() -> list:
-    """Load source chat IDs from file, fallback to defaults."""
+    """Load source chat IDs — merge defaults + saved so new deploys add new defaults."""
     import json
+    saved = []
     if os.path.exists(SOURCES_FILE):
         try:
             with open(SOURCES_FILE, "r") as f:
                 data = json.load(f)
-                return data.get("chats", DEFAULT_SOURCE_CHATS)
+                saved = data.get("chats", [])
         except Exception:
             pass
-    return list(DEFAULT_SOURCE_CHATS)
+    # Merge: start with defaults, add any extra saved IDs
+    merged = list(DEFAULT_SOURCE_CHATS)
+    for cid in saved:
+        if cid not in merged:
+            merged.append(cid)
+    # Save merged back so file stays up to date
+    save_sources(merged)
+    return merged
 
 def save_sources(chats: list):
     """Save source chat IDs to file."""
@@ -127,6 +140,14 @@ def is_signal(text):
 
     t = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii').upper()
 
+    # Fix common typos
+    t = t.replace('BUYY', 'BUY').replace('SELLL', 'SELL')
+    # Remove Telegram link format [text](url) → keep just text
+    import re as _re
+    t = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', t)
+    # Remove # from symbol hashtags
+    t = t.replace('#', '')
+
     if "TRADE TYPE:" in t:                                        return False
     if "UPDATE STOP LOSS" in t or "UPDATE TAKE PROFIT" in t:     return False
     if "TRADE CLOSED" in t or "POINTS MOVED" in t:               return False
@@ -158,7 +179,7 @@ def is_signal(text):
 
     has_direction  = re.search(r'\b(BUY|SELL)\b', t)
     has_trade_info = re.search(
-        r'(TP|SL|PIPS?|TAKE\s*PROFIT|STOP\s*LOSS|STOPLOSS|TAKEPROFIT|TARGET)', t
+        r'(TP\s*\d*\s*[:\-]?\s*[\d]|SL\s*[:\-]?\s*[\d]|TAKE\s*PROFIT|STOP\s*LOSS|STOPLOSS|TAKEPROFIT|TARGET\s*\d)', t
     )
     return bool(has_direction and has_trade_info)
 
@@ -237,7 +258,7 @@ async def cmd_check(event):
     test_text  = event.pattern_match.group(1)
     normalized = normalize_text(test_text)
     result     = is_signal(normalized)
-    parsed     = parse_signal(test_text)
+    parsed     = parse_signal(normalized)
     preview    = format_signal(parsed, source="[check]") if result else "❌ Would be filtered"
 
     await event.reply(

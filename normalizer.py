@@ -2,6 +2,25 @@ import re
 
 # ================== NORMALIZE ==================
 def normalize_text(text: str) -> str:
+    import re as _re
+    import unicodedata as _ud
+
+    # Step 1: Remove Telegram hyperlink format [label](url) → keep label only
+    text = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'', text)
+
+    # Step 2: Extract symbol from hashtag BEFORE any unicode stripping
+    # e.g. #BTCUSD → inject "BTCUSD" as clean word with space padding
+    def replace_hashtag(m):
+        return " " + m.group(1) + " "
+    text = _re.sub(r'#([A-Za-z]{2,10})', replace_hashtag, text)
+
+    # Step 3: Fix BUY/SELL typos BEFORE unicode strip
+    text = _re.sub(r'BUYY+', 'BUY', text, flags=_re.IGNORECASE)
+    text = _re.sub(r'SELL{2,}', 'SELL', text, flags=_re.IGNORECASE)
+
+    # Step 4: Strip emojis — remove non-ASCII chars char by char safely
+    # (avoid NFKD decomposition which corrupts chars near emojis)
+    text = "".join(ch if ord(ch) < 128 else " " for ch in text)
     return (
         text.replace("¹", "1")
             .replace("²", "2")

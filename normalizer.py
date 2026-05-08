@@ -48,7 +48,7 @@ def clean_number(val: float) -> str:
 # ================== DEFAULT SL CALCULATOR ==================
 # Approximate USD pip value per 0.01 lot for each symbol
 PIP_VALUE_MAP = {
-    "XAUUSD":  0.10,   # Gold:    1 pip = $0.10 per 0.01 lot
+    "XAUUSD":  1.00,   # Gold:    1 pip = $1.00 per 0.01 lot
     "XAGUSD":  0.05,   # Silver
     "USDJPY":  0.0076, # JPY pairs
     "GBPJPY":  0.0076,
@@ -68,6 +68,18 @@ PIP_VALUE_MAP = {
 }
 
 DEFAULT_SL_USD = 10.0  # Risk $10 by default
+
+# Minimum SL distance in price points per symbol
+MIN_SL_DISTANCE = {
+    "XAUUSD": 10.0,   # Gold min 10 points
+    "XAGUSD": 0.50,
+    "BTCUSD": 500.0,
+    "ETHUSD": 20.0,
+    "USDJPY": 0.50,
+    "GBPJPY": 0.50,
+    "EURJPY": 0.50,
+    "DEFAULT": 0.0010,
+}
 
 
 def calculate_default_sl(symbol: str, entry: float, direction: str) -> float:
@@ -92,6 +104,10 @@ def calculate_default_sl(symbol: str, entry: float, direction: str) -> float:
 
     pips_needed = DEFAULT_SL_USD / pip_value
     sl_distance  = round(pips_needed * pip_size, 5)
+
+    # Apply minimum SL distance
+    min_dist = MIN_SL_DISTANCE.get(symbol_upper, MIN_SL_DISTANCE["DEFAULT"])
+    sl_distance = max(sl_distance, min_dist)
 
     if direction == "BUY":
         return round(entry - sl_distance, 3)

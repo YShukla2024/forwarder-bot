@@ -42,44 +42,46 @@ SOURCES_FILE = "sources.json"
 
 DEFAULT_SOURCE_CHATS = [
     -1001223812798,
-    -1002086907376, # XTREME FREE GOLD SIGNALS
+    -1002086907376,
     -1001540535352,
     -1001564046986,
-    -1002116974051,
     -1002184500107,
     -1003298681349,
     -1001897903474,
-    -1002284339674,
     -1001746260985,
-    -1001067365629,
-    -1001548665510,
     -1001821769537,
     -1002365747286,
-    -1001218056271,
-    -1001381790914, # Sureshot INDICES
     -1001604836510,
     -1001886710177,
     -1002053336035,
-    -1001805719691,
-    -1002518518156,
     -1002407499797,
     -1002214622470,
     -1001821969165,
     -1001560921264,
-    -1001325493987, # GOLD TRADER
-    -1001477403711, # TRADE WITH AARO
-    -1002145284660, # Steven Signal | Live
-    -1001228254806, # Traders Paradise Live
-    -1001782503005, # GBP/JPY FOREX
-    -1001943914831, # Nasdaq masters
-    -1002057625630, # FOREX TRADING SIGNAL
-    -1001875148578, # FG FOREX GOLD
-    -1002762751030, # VASILY TRADER
-    -1001590096134, # Gold Trader Avi
-    -1002375711533, # David's Gold Strategy
-    -1002685861814, # AURICVERSE GOLD
-    -1001310831497, # TRADE WITH AHSAN
-    -5277876817,    # Gold Signal Test
+    -1001325493987,
+    -1001477403711,
+    -1001782503005,
+    -1001943914831,
+    -1002057625630,
+    -1001875148578,
+    -1002762751030,
+    -1001590096134,
+    -1002375711533,
+    -1002685861814,
+    -1001310831497,
+    -5277876817,
+    -1001200882128,
+    -1002200425625,
+    -1002138960867,
+    -1001389726384,
+    -1001414558402,
+    -1002701771444,
+    -1002122493772,
+    -1001548594995,
+    -1003854485927,
+    1001821769537,
+    -1003082825084,
+    -1001784375097
 ]
 
 def load_sources() -> list:
@@ -176,6 +178,8 @@ def is_signal(text):
     if "ACCOUNT BALANCE" in t:                                    return False
     if "PIPS" in t and ("+" in t or "-" in t) and ("SELL-" in t or "BUY-" in t): return False
     if re.search(r'[+-]\d+\s*PIPS', t):                           return False
+    if re.search(r'\d+\s*\+\s*PIPS', t):                          return False
+    if re.search(r'TP\s*\d+\s*\d+\s*\+\s*PIPS', t):              return False
 
     has_direction  = re.search(r'\b(BUY|SELL)\b', t)
     has_trade_info = re.search(
@@ -301,6 +305,52 @@ async def cmd_removechat(event):
     save_sources(SOURCE_CHATS)
     await client.send_message(target_group, f"✅ Removed: {chat_id}\nTotal: {len(SOURCE_CHATS)} sources")
     print(f"➖ Removed source: {chat_id}")
+
+@client.on(events.NewMessage(pattern=r'^/addchats\s+([\d\s\-]+)$'))
+async def cmd_addchats(event):
+    global SOURCE_CHATS
+    raw = event.pattern_match.group(1)
+    ids = [int(x.strip()) for x in raw.split() if x.strip().lstrip("-").isdigit()]
+    added, already = [], []
+    for cid in ids:
+        if cid in SOURCE_CHATS:
+            already.append(cid)
+        else:
+            SOURCE_CHATS.append(cid)
+            added.append(cid)
+    if added:
+        save_sources(SOURCE_CHATS)
+    lines = []
+    if added:
+        lines.append(f"✅ Added {len(added)}: {' '.join(str(c) for c in added)}")
+    if already:
+        lines.append(f"⚠️ Already exists: {' '.join(str(c) for c in already)}")
+    lines.append(f"📋 Total: {len(SOURCE_CHATS)}")
+    await client.send_message(target_group, "\n".join(lines))
+    print(f"➕ Bulk added: {added}")
+
+@client.on(events.NewMessage(pattern=r'^/removechats\s+([\d\s\-]+)$'))
+async def cmd_removechats(event):
+    global SOURCE_CHATS
+    raw = event.pattern_match.group(1)
+    ids = [int(x.strip()) for x in raw.split() if x.strip().lstrip("-").isdigit()]
+    removed, not_found = [], []
+    for cid in ids:
+        if cid in SOURCE_CHATS:
+            SOURCE_CHATS.remove(cid)
+            removed.append(cid)
+        else:
+            not_found.append(cid)
+    if removed:
+        save_sources(SOURCE_CHATS)
+    lines = []
+    if removed:
+        lines.append(f"✅ Removed {len(removed)}: {' '.join(str(c) for c in removed)}")
+    if not_found:
+        lines.append(f"❌ Not found: {' '.join(str(c) for c in not_found)}")
+    lines.append(f"📋 Total remaining: {len(SOURCE_CHATS)}")
+    await client.send_message(target_group, "\n".join(lines))
+    print(f"➖ Bulk removed: {removed}")
 
 @client.on(events.NewMessage(pattern=r'^/listchats$'))
 async def cmd_listchats(event):

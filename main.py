@@ -1,302 +1,492 @@
+import os
 import re
+import asyncio
+import unicodedata
+from datetime import datetime, timedelta, timezone
+from flask import Flask
+import threading
+from telethon import TelegramClient, events
+from telethon.sessions import StringSession
+from dotenv import load_dotenv
+from normalizer import normalize_text, parse_signal, format_signal, is_valid_signal
 
-# ================== NORMALIZE ==================
-def normalize_text(text: str) -> str:
-    import re as _re
+# ================== FLASK KEEPALIVE ==================
+app = Flask(__name__)
 
-    # Step 1: Remove Telegram hyperlink format [label](url) → keep label only
-    text = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+@app.route('/')
+def home():
+    return "Bot is running"
 
-    # Step 2: Remove markdown bold/italic asterisks
-    text = _re.sub(r'\*+', ' ', text)
+def run_web():
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
 
-    # Step 3: Extract symbol from hashtag BEFORE any unicode stripping
-    text = _re.sub(r'#([A-Za-z]{2,10})', lambda m: " " + m.group(1) + " ", text)
+threading.Thread(target=run_web, daemon=True).start()
 
-    # Step 4: Fix SHORT → SELL, LONG → BUY
-    text = _re.sub(r'\bSHORT\b', 'SELL', text, flags=_re.IGNORECASE)
-    text = _re.sub(r'\bLONG\b',  'BUY',  text, flags=_re.IGNORECASE)
+# ================== LOAD CONFIG ==================
+load_dotenv()
 
-    # Step 5: Fix BUY/SELL typos
-    text = _re.sub(r'BUYY+',    'BUY',  text, flags=_re.IGNORECASE)
-    text = _re.sub(r'SELL{2,}', 'SELL', text, flags=_re.IGNORECASE)
+api_id        = int(os.getenv("API_ID"))
+api_hash      = os.getenv("API_HASH")
+phone         = os.getenv("PHONE")
+session_string = os.getenv("SESSION_STRING")
 
-    # Step 6: Fix TP. / SL. dot separator
-    text = _re.sub(r'\b(TP\s*\d*)\.\s*', r'\1 ', text, flags=_re.IGNORECASE)
-    text = _re.sub(r'\b(SL)\.\s*',        r'\1 ', text, flags=_re.IGNORECASE)
+target_group_raw = os.getenv("TARGET_GROUP_ID")
+target_group = int(target_group_raw) if target_group_raw.startswith("-100") else target_group_raw
 
-    # Step 7: Fix 4716.4718 (two prices joined by dot) → 4716-4718
-    text = _re.sub(r'(\b\d{4,})\.(\d{4,}\b)', r'\1-\2', text)
+HEARTBEAT_INTERVAL = 30 * 60  # 30 minutes
 
-    # Step 8: Strip emojis — replace non-ASCII with space
-    text = "".join(ch if ord(ch) < 128 else " " for ch in text)
+# ================== SETTINGS ==================
 
-    # Step 9: Add spaces around keywords glued to numbers
-    text = _re.sub(r'(\d)(SL|TP|BUY|SELL)', r'\1 \2', text, flags=_re.IGNORECASE)
-    text = _re.sub(r'(SL|TP)(\d)',           r'\1 \2', text, flags=_re.IGNORECASE)
+SOURCES_FILE = "sources.json"
 
-    return (
-        text.replace("¹", "1")
-            .replace("²", "2")
-            .replace("³", "3")
-            .replace("⁴", "4")
-            .replace("⁵", "5")
-            .replace("⁶", "6")
-            .replace("⁷", "7")
-            .replace("⁸", "8")
-            .replace("⁹", "9")
-            .replace("：", " ")
-            .replace("–", "-")
-            .replace("—", "-")
-    )
+DEFAULT_SOURCE_CHATS = [
+    -1001223812798,
+    -1002086907376,
+    -1001540535352,
+    -1001564046986,
+    -1002184500107,
+    -1003298681349,
+    -1001897903474,
+    -1001746260985,
+    -1001821769537,
+    -1002365747286,
+    -1001604836510,
+    -1001886710177,
+    -1002053336035,
+    -1002407499797,
+    -1002214622470,
+    -1001821969165,
+    -1001560921264,
+    -1001325493987,
+    -1001477403711,
+    -1001782503005,
+    -1001943914831,
+    -1002057625630,
+    -1001875148578,
+    -1002762751030,
+    -1001590096134,
+    -1002375711533,
+    -1002685861814,
+    -1001310831497,
+    -5277876817,
+    -1001200882128,
+    -1002200425625,
+    -1002138960867,
+    -1001389726384,
+    -1001414558402,
+    -1002701771444,
+    -1002122493772,
+    -1001548594995,
+    -1003854485927,
+    1001821769537,
+    -1003082825084,
+    -1001784375097
+]
 
-
-def clean_number(val: float) -> str:
-    return str(int(val)) if val == int(val) else str(val)
-
-
-# ================== DEFAULT SL CALCULATOR ==================
-PIP_VALUE_MAP = {
-    "XAUUSD":  1.00,
-    "XAGUSD":  0.05,
-    "USDJPY":  0.0076,
-    "GBPJPY":  0.0076,
-    "EURJPY":  0.0076,
-    "CHFJPY":  0.0076,
-    "GBPUSD":  0.01,
-    "EURUSD":  0.01,
-    "AUDUSD":  0.01,
-    "NZDUSD":  0.01,
-    "USDCAD":  0.0076,
-    "USDCHF":  0.0109,
-    "BTCUSD":  0.01,
-    "ETHUSD":  0.01,
-    "USOUSD":  0.01,
-    "NGUSD":   0.01,
-    "DEFAULT": 0.01,
-}
-
-DEFAULT_SL_USD = 10.0
-
-MIN_SL_DISTANCE = {
-    "XAUUSD":  10.0,
-    "XAGUSD":  0.50,
-    "BTCUSD":  500.0,
-    "ETHUSD":  20.0,
-    "USDJPY":  0.50,
-    "GBPJPY":  0.50,
-    "EURJPY":  0.50,
-    "EURUSD":  0.0010,
-    "GBPUSD":  0.0010,
-    "DEFAULT": 0.0010,
-}
-
-
-def calculate_default_sl(symbol: str, entry: float, direction: str) -> float:
-    symbol_upper = (symbol or "DEFAULT").upper()
-    pip_value    = PIP_VALUE_MAP.get(symbol_upper, PIP_VALUE_MAP["DEFAULT"])
-
-    if "JPY" in symbol_upper:
-        pip_size = 0.01
-    elif "XAU" in symbol_upper or "GOLD" in symbol_upper:
-        pip_size = 0.01
-    elif "XAG" in symbol_upper or "SILVER" in symbol_upper:
-        pip_size = 0.01
-    elif "BTC" in symbol_upper or "ETH" in symbol_upper:
-        pip_size = 1.0
-    else:
-        pip_size = 0.0001
-
-    pips_needed = DEFAULT_SL_USD / pip_value
-    sl_distance = round(pips_needed * pip_size, 5)
-    min_dist    = MIN_SL_DISTANCE.get(symbol_upper, MIN_SL_DISTANCE["DEFAULT"])
-    sl_distance = max(sl_distance, min_dist)
-
-    if direction == "BUY":
-        return round(entry - sl_distance, 3)
-    else:
-        return round(entry + sl_distance, 3)
-
-
-# ================== PARSE SIGNAL ==================
-def parse_signal(text: str) -> dict:
-    text  = normalize_text(text)
-    upper = text.upper()
-
-    result = {
-        "type":   None,
-        "symbol": "XAUUSD",
-        "entry":  None,
-        "tp":     [],
-        "sl":     None
-    }
-
-    # ── SYMBOL ───────────────────────────────────────────────────────
-    symbol_map = [
-        (["XAU", "GOLD"],            "XAUUSD"),
-        (["EURUSD", "EUR/USD"],      "EURUSD"),
-        (["GBPUSD", "GBP/USD"],      "GBPUSD"),
-        (["USDJPY", "USD/JPY"],      "USDJPY"),
-        (["CHFJPY", "CHF/JPY"],      "CHFJPY"),
-        (["USDCHF", "USD/CHF"],      "USDCHF"),
-        (["AUDUSD", "AUD/USD"],      "AUDUSD"),
-        (["USDCAD", "USD/CAD"],      "USDCAD"),
-        (["NZDUSD", "NZD/USD"],      "NZDUSD"),
-        (["GBPJPY", "GBP/JPY"],      "GBPJPY"),
-        (["EURJPY", "EUR/JPY"],      "EURJPY"),
-        (["XAG", "SILVER"],          "XAGUSD"),
-        (["BTC", "BITCOIN"],         "BTCUSD"),
-        (["ETH", "ETHEREUM"],        "ETHUSD"),
-        (["LTC", "LITECOIN"],        "LTCUSD"),
-        (["XRP", "RIPPLE"],          "XRPUSD"),
-        (["ADA", "CARDANO"],         "ADAUSD"),
-        (["DOT", "POLKADOT"],        "DOTUSD"),
-        (["SOL", "SOLANA"],          "SOLUSD"),
-        (["DOGE", "DOGECOIN"],       "DOGEUSD"),
-        (["AVAX", "AVALANCHE"],      "AVAXUSD"),
-        (["MATIC", "POLYGON"],       "MATICUSD"),
-        (["SHIB", "SHIBA"],          "SHIBUSD"),
-        (["UNI", "UNISWAP"],         "UNIUSD"),
-        (["LINK", "CHAINLINK"],      "LINKUSD"),
-        (["LUNA", "TERRA"],          "LUNAUSD"),
-        (["ALGO", "ALGORAND"],       "ALGOUSD"),
-        (["ATOM", "COSMOS"],         "ATOMUSD"),
-        (["USOUSD", "USOIL"],        "USOUSD"),
-        (["COPPER"],                 "CATPGPY"),
-        (["NGUSD", "NATGAS"],        "NGUSD"),
-        (["NAS", "NASDAQ", "US100"], "NAS100"),
-        (["SP500", "SPX"],           "SPX500"),
-        (["DOW", "DJ30"],            "DJ30"),
-    ]
-    for keywords, sym in symbol_map:
-        if any(k in upper for k in keywords):
-            result["symbol"] = sym
-            break
-
-    # ── SYMBOL FALLBACK BY PRICE RANGE ───────────────────────────────
-    if result["symbol"] == "XAUUSD":
-        all_prices = re.findall(r'\b(\d{4,6}(?:\.\d+)?)\b', upper)
-        if all_prices:
-            max_price = max(float(p) for p in all_prices)
-            if max_price > 50000:
-                result["symbol"] = "BTCUSD"
-            elif max_price > 5000:
-                result["symbol"] = "ETHUSD"
-
-    # ── TYPE ─────────────────────────────────────────────────────────
-    if re.search(r'\bBUY\b', upper):
-        result["type"] = "BUY"
-    elif re.search(r'\bSELL\b', upper):
-        result["type"] = "SELL"
-
-    # ── ENTRY ────────────────────────────────────────────────────────
-    entry_match = re.search(
-        r'\b(BUY|SELL)\s*(?:NOW|LIMIT|ZONE|NEAR)?\s*[@:\-]?\s*'
-        r'([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?',
-        upper
-    )
-    entry_keyword_match = re.search(
-        r'ENTRY\s*(?:BUY|SELL)?\s*[:\-]?\s*'
-        r'([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?',
-        upper
-    )
-    zone_match = re.search(
-        r'ZONE\s*([\d]+(?:\.\d+)?)\s*[-]\s*([\d]+(?:\.\d+)?)', upper
-    )
-    at_match = re.search(r'@\s*([\d]+(?:\.\d+)?)', upper)
-
-    if entry_match:
-        v1 = float(entry_match.group(2))
-        v2 = entry_match.group(3)
-        result["entry"] = str(round((v1 + float(v2)) / 2, 4)) if v2 else entry_match.group(2)
-    elif entry_keyword_match:
-        v1 = float(entry_keyword_match.group(1))
-        v2 = entry_keyword_match.group(2)
-        result["entry"] = str(round((v1 + float(v2)) / 2, 4)) if v2 else entry_keyword_match.group(1)
-    elif zone_match:
-        v1, v2 = float(zone_match.group(1)), float(zone_match.group(2))
-        result["entry"] = str(round((v1 + v2) / 2, 4))
-    elif at_match:
-        result["entry"] = at_match.group(1)
-
-    # ── TP ───────────────────────────────────────────────────────────
-    def flat(matches):
-        out = []
-        for m in matches:
-            val = (m[0] or m[1]) if isinstance(m, tuple) else m
-            if val:
-                out.append(val)
-        return out
-
-    tp_matches = re.findall(
-        r'\bTP\s*\d{0,2}\s*[:\-\.\s_]\s*([\d]+(?:\.\d+)?)|\bTP\s*\d{0,2}\s+([\d]+(?:\.\d+)?)',
-        upper
-    )
-    takeprofit_matches = re.findall(
-        r'\bTAKEPROFIT\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]+(?:\.\d+)?)', upper
-    )
-    take_profit_matches = re.findall(
-        r'\bTAKE\s*PROFIT\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]+(?:\.\d+)?)', upper
-    )
-    target_matches = re.findall(
-        r'\bTARGET\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]+(?:\.\d+)?)', upper
-    )
-    tp1_matches = re.findall(
-        r'\bTP[1-9]\s*[:\-\.]?\s*([\d]+(?:\.\d+)?)', upper
-    )
-
-    all_tp = (flat(tp_matches) or flat(tp1_matches) or
-              takeprofit_matches or take_profit_matches or target_matches)
-
-    # Filter out wrong TP values — keep only within 20% of entry
-    if result["entry"]:
+def load_sources() -> list:
+    """Load source chat IDs — merge defaults + saved so new deploys add new defaults."""
+    import json
+    saved = []
+    if os.path.exists(SOURCES_FILE):
         try:
-            entry_f = float(result["entry"])
-            all_tp  = [t for t in all_tp if entry_f > 0 and abs(float(t) - entry_f) / entry_f < 0.20]
+            with open(SOURCES_FILE, "r") as f:
+                data = json.load(f)
+                saved = data.get("chats", [])
         except Exception:
             pass
+    # Merge: start with defaults, add any extra saved IDs
+    merged = list(DEFAULT_SOURCE_CHATS)
+    for cid in saved:
+        if cid not in merged:
+            merged.append(cid)
+    # Save merged back so file stays up to date
+    save_sources(merged)
+    return merged
 
-    result["tp"] = [float(tp) for tp in all_tp]
+def save_sources(chats: list):
+    """Save source chat IDs to file."""
+    import json
+    with open(SOURCES_FILE, "w") as f:
+        json.dump({"chats": chats}, f, indent=2)
 
-    # ── SL ───────────────────────────────────────────────────────────
-    # Allow text between SL and number e.g. "SL: Solid break 4714"
-    sl_match = re.search(
-        r'\b(?:SL|STOPLOSS|STOP\s*LOSS)\b[^0-9]{0,40}?([\d]+(?:\.\d+)?)',
-        upper
-    )
-    if sl_match:
-        result["sl"] = float(sl_match.group(1))
+# Load on startup — always use this instead of SOURCE_CHATS directly
+SOURCE_CHATS = load_sources()
 
-    return result
+PRINT_ALL_MESSAGES = True
+SEND_TEST_ON_START = True
+
+client = TelegramClient(StringSession(session_string), api_id, api_hash)
 
 
-# ================== FORMAT SIGNAL ==================
-def format_signal(data: dict, source: str = None) -> str:
-    symbol    = (data.get("symbol") or "UNKNOWN").upper()
-    direction = (data.get("type")   or "").upper()
-    entry     = data.get("entry")
-    sl        = data.get("sl")
-    tp_list   = data.get("tp") or []
-
-    # Auto-fill missing SL
-    if not sl and entry:
+# ================== HEARTBEAT ==================
+async def send_heartbeat(target_entity):
+    while True:
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
         try:
-            sl = calculate_default_sl(symbol, float(entry), direction)
-        except Exception:
-            sl = None
-
-    first_tp = clean_number(tp_list[0]) if tp_list else "N/A"
-    sl_str   = clean_number(sl) if sl else "N/A"
-
-    lines = [f"{direction} {symbol} {entry or 'N/A'}"]
-    lines.append(f"TP {first_tp}")
-    lines.append(f"SL {sl_str}")
-    if source:
-        lines.append(f"Source: {source}")
-
-    return "\n".join(lines)
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            await client.send_message(target_entity,
+                f"💓 BOT ALIVE\n"
+                f"📡 Monitoring {len(SOURCE_CHATS)} groups\n"
+                f"🕐 {now}"
+            )
+            print(f"💓 Heartbeat sent at {now}")
+        except Exception as e:
+            print(f"❌ Heartbeat failed: {e}")
 
 
-# ================== VALIDATION ==================
-def is_valid_signal(data: dict) -> bool:
-    return bool(data["type"] and data["entry"] and data["tp"])
+# ================== SIGNAL CHECKER ==================
+def is_signal(text):
+    if not text:
+        return False
+
+    t = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii').upper()
+
+    # Fix common typos
+    t = t.replace('BUYY', 'BUY').replace('SELLL', 'SELL')
+    # Remove Telegram link format [text](url) → keep just text
+    import re as _re
+    t = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', t)
+    # Remove # from symbol hashtags
+    t = t.replace('#', '')
+
+    if "TRADE TYPE:" in t:                                        return False
+    if "UPDATE STOP LOSS" in t or "UPDATE TAKE PROFIT" in t:     return False
+    if "TRADE CLOSED" in t or "POINTS MOVED" in t:               return False
+    if "NEW STOP LOSS:" in t or "NEW TAKE PROFIT:" in t:         return False
+    if "TRADE EXECUTED" in t:                                     return False
+    if "HIT" in t:                                                return False
+    if "PROFIT DONE" in t or "PROFIT BOOKED" in t:               return False
+    if "PIPS PROFIT" in t or "PIPS DONE" in t:                   return False
+    if "TARGET HIT" in t or "TARGET ACHIEVED" in t:              return False
+    if "TP HIT" in t or "SL HIT" in t:                           return False
+    if "CLOSED" in t and "PROFIT" in t:                           return False
+    if "IN PROFIT" in t:                                          return False
+    if "LOCK IN" in t or "LOCK PROFIT" in t:                     return False
+    if "BREAKEVEN" in t or "BREAK EVEN" in t:                    return False
+    if "RUNNING SMOOTH" in t or "SETUP RUNNING" in t:            return False
+    if "CLOSE HALF" in t or "HALF PROFIT" in t:                  return False
+    if "TICKET:" in t or "TICKET #" in t:                        return False
+    if "NEW EXECUTION" in t:                                      return False
+    if "PENDING" in t and "LOTS:" in t:                           return False
+    if "POSITION VALUE" in t:                                     return False
+    if ("SELL STOP" in t or "BUY STOP" in t) and "LOTS:" in t:   return False
+    if ("SELL LIMIT" in t or "BUY LIMIT" in t) and "LOTS:" in t: return False
+    if "BALANCE:" in t and "EQUITY:" in t:                        return False
+    if "FLOATING:" in t:                                          return False
+    if "STATUS UPDATE" in t:                                      return False
+    if "ACCOUNT BALANCE" in t:                                    return False
+    if "PIPS" in t and ("+" in t or "-" in t) and ("SELL-" in t or "BUY-" in t): return False
+    if re.search(r'[+-]\d+\s*PIPS', t):                           return False
+    if re.search(r'\d+\s*\+\s*PIPS', t):                          return False
+    if re.search(r'TP\s*\d+\s*\d+\s*\+\s*PIPS', t):              return False
+
+    has_direction  = re.search(r'\b(BUY|SELL)\b', t)
+    has_trade_info = re.search(
+        r'(TP\s*\d*\s*[:\-]?\s*[\d]|SL\s*[:\-]?\s*[\d]|TAKE\s*PROFIT|STOP\s*LOSS|STOPLOSS|TAKEPROFIT|TARGET\s*\d)', t
+    )
+    return bool(has_direction and has_trade_info)
+
+
+# ================== HELPERS ==================
+async def get_chat_name(chat_id):
+    try:
+        entity = await client.get_entity(chat_id)
+        return entity.title or entity.first_name or str(chat_id)
+    except Exception as e:
+        print(f"⚠️ Could not get chat name for {chat_id}: {e}")
+        return f"Chat_{chat_id}"
+
+
+def log_signal(source_chat_id, source_chat_name, symbol, type_, entry, tp, sl, raw_text, missed=False):
+    try:
+        import json
+        log_entry = {
+            "timestamp":        datetime.now().isoformat(),
+            "source_chat_id":   source_chat_id,
+            "source_chat_name": source_chat_name,
+            "symbol":           symbol,
+            "type":             type_,
+            "entry":            entry,
+            "tp":               tp,
+            "sl":               sl,
+            "raw_text":         raw_text,
+            "missed":           missed,
+        }
+        with open("signals.log", "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
+        print(f"📝 Logged: {symbol} {type_}")
+    except Exception as e:
+        print(f"❌ Logging error: {e}")
+
+
+# ================== DEBUG LOGGER ==================
+@client.on(events.NewMessage)
+async def debug_logger(event):
+    if PRINT_ALL_MESSAGES:
+        try:
+            chat = await event.get_chat()
+            print("\n📩 NEW MESSAGE")
+            print("CHAT:", getattr(chat, "title", "Unknown"))
+            print("ID:  ", event.chat_id)
+            print("TEXT:", event.message.message)
+            print("-" * 50)
+        except Exception as e:
+            print("❌ Debug error:", e)
+
+
+# ================== COMMAND HANDLERS ==================
+@client.on(events.NewMessage(outgoing=True, pattern=r'^/test$'))
+async def cmd_test(event):
+    try:
+        await client.send_message(target_group,
+            "🧪 TEST SIGNAL\nXAUUSD BUY 1900\nTP1: 1910\nSL: 1890"
+        )
+        await event.reply("✅ Test signal sent!")
+        print("🧪 Manual test triggered")
+    except Exception as e:
+        await event.reply(f"❌ Test failed: {e}")
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^/status$'))
+async def cmd_status(event):
+    await event.reply(
+        f"🟢 Bot is running\n"
+        f"📋 Monitoring {len(SOURCE_CHATS)} source groups\n"
+        f"🎯 Target: {target_group}"
+    )
+
+
+@client.on(events.NewMessage(outgoing=True, pattern=r'^/check (.+)'))
+async def cmd_check(event):
+    test_text  = event.pattern_match.group(1)
+    normalized = normalize_text(test_text)
+    result     = is_signal(normalized)
+    parsed     = parse_signal(normalized)
+    preview    = format_signal(parsed, source="[check]") if result else "❌ Would be filtered"
+
+    await event.reply(
+        f"📝 Input: {test_text}\n"
+        f"🔄 Normalized: {normalized}\n"
+        f"{'✅ WOULD FORWARD' if result else '❌ WOULD BE FILTERED'}\n\n"
+        f"📊 Parsed:\n"
+        f"  Symbol: {parsed.get('symbol', 'N/A')}\n"
+        f"  Type:   {parsed['type']}\n"
+        f"  Entry:  {parsed['entry']}\n"
+        f"  TP:     {parsed['tp']}\n"
+        f"  SL:     {parsed['sl'] or '(auto ~$10)'}\n\n"
+        f"📤 Preview:\n{preview}"
+    )
+
+
+
+# ================== CHAT MANAGEMENT COMMANDS ==================
+@client.on(events.NewMessage(pattern=r'^/addchat\s+(-?\d+)(?:\s+(.+))?$'))
+async def cmd_addchat(event):
+    global SOURCE_CHATS
+    chat_id = int(event.pattern_match.group(1))
+    label   = event.pattern_match.group(2) or ""
+    if chat_id in SOURCE_CHATS:
+        await client.send_message(target_group, f"⚠️ Already exists: {chat_id}")
+        return
+    SOURCE_CHATS.append(chat_id)
+    save_sources(SOURCE_CHATS)
+    await client.send_message(target_group, f"✅ Added: {chat_id} {label}\nTotal: {len(SOURCE_CHATS)} sources")
+    print(f"➕ Added source: {chat_id} {label}")
+
+@client.on(events.NewMessage(pattern=r'^/removechat\s+(-?\d+)$'))
+async def cmd_removechat(event):
+    global SOURCE_CHATS
+    chat_id = int(event.pattern_match.group(1))
+    if chat_id not in SOURCE_CHATS:
+        await client.send_message(target_group, f"❌ Not found: {chat_id}")
+        return
+    SOURCE_CHATS.remove(chat_id)
+    save_sources(SOURCE_CHATS)
+    await client.send_message(target_group, f"✅ Removed: {chat_id}\nTotal: {len(SOURCE_CHATS)} sources")
+    print(f"➖ Removed source: {chat_id}")
+
+@client.on(events.NewMessage(pattern=r'^/addchats\s+([\d\s\-]+)$'))
+async def cmd_addchats(event):
+    global SOURCE_CHATS
+    raw = event.pattern_match.group(1)
+    ids = [int(x.strip()) for x in raw.split() if x.strip().lstrip("-").isdigit()]
+    added, already = [], []
+    for cid in ids:
+        if cid in SOURCE_CHATS:
+            already.append(cid)
+        else:
+            SOURCE_CHATS.append(cid)
+            added.append(cid)
+    if added:
+        save_sources(SOURCE_CHATS)
+    lines = []
+    if added:
+        lines.append(f"✅ Added {len(added)}: {' '.join(str(c) for c in added)}")
+    if already:
+        lines.append(f"⚠️ Already exists: {' '.join(str(c) for c in already)}")
+    lines.append(f"📋 Total: {len(SOURCE_CHATS)}")
+    await client.send_message(target_group, "\n".join(lines))
+    print(f"➕ Bulk added: {added}")
+
+@client.on(events.NewMessage(pattern=r'^/removechats\s+([\d\s\-]+)$'))
+async def cmd_removechats(event):
+    global SOURCE_CHATS
+    raw = event.pattern_match.group(1)
+    ids = [int(x.strip()) for x in raw.split() if x.strip().lstrip("-").isdigit()]
+    removed, not_found = [], []
+    for cid in ids:
+        if cid in SOURCE_CHATS:
+            SOURCE_CHATS.remove(cid)
+            removed.append(cid)
+        else:
+            not_found.append(cid)
+    if removed:
+        save_sources(SOURCE_CHATS)
+    lines = []
+    if removed:
+        lines.append(f"✅ Removed {len(removed)}: {' '.join(str(c) for c in removed)}")
+    if not_found:
+        lines.append(f"❌ Not found: {' '.join(str(c) for c in not_found)}")
+    lines.append(f"📋 Total remaining: {len(SOURCE_CHATS)}")
+    await client.send_message(target_group, "\n".join(lines))
+    print(f"➖ Bulk removed: {removed}")
+
+@client.on(events.NewMessage(pattern=r'^/listchats$'))
+async def cmd_listchats(event):
+    if not SOURCE_CHATS:
+        await client.send_message(target_group, "📋 No source chats configured.")
+        return
+    lines = [f"📋 Source Chats ({len(SOURCE_CHATS)} total):\n"]
+    for i, cid in enumerate(SOURCE_CHATS, 1):
+        lines.append(f"{i}. {cid}")
+    await client.send_message(target_group, "\n".join(lines))
+
+# ================== MAIN HANDLER ==================
+@client.on(events.NewMessage)
+async def handler(event):
+    try:
+        chat_id = event.chat_id
+
+        raw_text = event.message.message or ""
+        if not raw_text.strip():
+            return
+
+        # Allow /addchat, /removechat, /listchats from anywhere
+        if raw_text.startswith("/"):
+            return
+
+        if chat_id not in SOURCE_CHATS:
+            return
+
+        text = normalize_text(raw_text)
+        if not is_signal(text):
+            return
+
+        data      = parse_signal(text)
+        chat_name = await get_chat_name(chat_id)
+
+        if not data["type"] or not data["entry"]:
+            await client.send_message(target_group, text)
+            log_signal(chat_id, chat_name, data.get("symbol"), data["type"],
+                       data["entry"], data["tp"], data["sl"], raw_text)
+            print(f"✅ Forwarded (raw) from {chat_id}")
+            return
+
+        # format_signal handles missing SL automatically (~$10 default)
+        output = format_signal(data, source=chat_name)
+        await client.send_message(target_group, output)
+
+        log_signal(
+            source_chat_id=chat_id, source_chat_name=chat_name,
+            symbol=data.get("symbol"), type_=data["type"],
+            entry=data["entry"], tp=data["tp"], sl=data["sl"],
+            raw_text=raw_text, missed=False,
+        )
+        print(f"✅ Forwarded (clean) from {chat_id}")
+
+    except Exception as e:
+        print("❌ Error:", e)
+
+
+# ================== MAIN ==================
+async def main():
+    await client.start()
+
+    print("🔄 Loading sources...")
+    for chat_id in SOURCE_CHATS:
+        try:
+            await client.get_entity(chat_id)
+            print("✅ Loaded:", chat_id)
+        except Exception as e:
+            print("❌ Failed:", chat_id, e)
+
+    target_entity = await client.get_entity(target_group)
+    print("🎯 Target:", target_entity.title)
+
+    if SEND_TEST_ON_START:
+        try:
+            await client.send_message(target_entity,
+                f"🟢 BOT STARTED\n"
+                f"📡 Listening to signal sources...\n"
+                f"📋 Monitoring {len(SOURCE_CHATS)} groups"
+            )
+            print("✅ Start message sent")
+        except Exception as e:
+            print("❌ Send failed:", e)
+
+    # Recover missed messages (last 30 mins)
+    print("🔄 Checking missed messages (last 30 mins)...")
+    cutoff    = datetime.now(timezone.utc) - timedelta(minutes=30)
+    recovered = 0
+
+    for chat_id in SOURCE_CHATS:
+        try:
+            async for msg in client.iter_messages(chat_id, limit=20):
+                if msg.date < cutoff:
+                    break
+                if not msg.text or not msg.text.strip():
+                    continue
+                text = normalize_text(msg.text)
+                if is_signal(text):
+                    data      = parse_signal(text)
+                    chat_name = await get_chat_name(chat_id)
+                    output    = format_signal(data, source=chat_name)
+                    await client.send_message(target_group, f"📬 MISSED SIGNAL\n\n{output}")
+                    recovered += 1
+                    print(f"📬 Recovered from {chat_id}")
+                    await asyncio.sleep(1)
+        except Exception as e:
+            print(f"❌ Missed check failed {chat_id}: {e}")
+
+    print(f"{'✅ No missed signals' if recovered == 0 else f'📬 Recovered {recovered} signals'}")
+
+    asyncio.ensure_future(send_heartbeat(target_entity))
+    print("💓 Heartbeat started (every 30 mins)")
+    print("🚀 Listening...")
+
+    try:
+        await client.run_until_disconnected()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        print("⚠️ Sending stop message...")
+        try:
+            if not client.is_connected():
+                await client.connect()
+            await client.send_message(target_entity,
+                "🔴 BOT STOPPED\n⚠️ Signal forwarding is paused.\n🔁 Restart the bot."
+            )
+            print("✅ Stop message sent")
+        except Exception as e:
+            print("❌ Could not send stop message:", e)
+        finally:
+            await client.disconnect()
+
+
+# ================== RUN ==================
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("⚠️ Stopped by user (Ctrl+C)")

@@ -3,29 +3,38 @@ import re
 # ================== NORMALIZE ==================
 def normalize_text(text: str) -> str:
     import re as _re
-    import unicodedata as _ud
 
     # Step 1: Remove Telegram hyperlink format [label](url) → keep label only
-    text = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'', text)
+    text = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
 
-    # Step 2: Extract symbol from hashtag BEFORE any unicode stripping
-    # e.g. #BTCUSD → inject "BTCUSD" as clean word with space padding
-    def replace_hashtag(m):
-        return " " + m.group(1) + " "
-    text = _re.sub(r'#([A-Za-z]{2,10})', replace_hashtag, text)
+    # Step 2: Remove markdown bold/italic asterisks
+    text = _re.sub(r'\*+', ' ', text)
 
-    # Step 3: Fix BUY/SELL typos BEFORE unicode strip
-    text = _re.sub(r'BUYY+', 'BUY', text, flags=_re.IGNORECASE)
+    # Step 3: Extract symbol from hashtag BEFORE any unicode stripping
+    text = _re.sub(r'#([A-Za-z]{2,10})', lambda m: " " + m.group(1) + " ", text)
+
+    # Step 4: Fix SHORT → SELL, LONG → BUY
+    text = _re.sub(r'\bSHORT\b', 'SELL', text, flags=_re.IGNORECASE)
+    text = _re.sub(r'\bLONG\b',  'BUY',  text, flags=_re.IGNORECASE)
+
+    # Step 5: Fix BUY/SELL typos
+    text = _re.sub(r'BUYY+',    'BUY',  text, flags=_re.IGNORECASE)
     text = _re.sub(r'SELL{2,}', 'SELL', text, flags=_re.IGNORECASE)
 
-    # Step 4: Strip emojis — remove non-ASCII chars char by char safely
-    # (avoid NFKD decomposition which corrupts chars near emojis)
+    # Step 6: Fix TP. / SL. dot separator
+    text = _re.sub(r'\b(TP\s*\d*)\.\s*', r'\1 ', text, flags=_re.IGNORECASE)
+    text = _re.sub(r'\b(SL)\.\s*',        r'\1 ', text, flags=_re.IGNORECASE)
+
+    # Step 7: Fix 4716.4718 (two prices joined by dot) → 4716-4718
+    text = _re.sub(r'(\b\d{4,})\.(\d{4,}\b)', r'\1-\2', text)
+
+    # Step 8: Strip emojis — replace non-ASCII with space
     text = "".join(ch if ord(ch) < 128 else " " for ch in text)
 
-    # Step 5: Add spaces around keywords glued to numbers
-    # e.g. 4725SL → 4725 SL, 4707TP → 4707 TP, TP4735 → TP 4735
+    # Step 9: Add spaces around keywords glued to numbers
     text = _re.sub(r'(\d)(SL|TP|BUY|SELL)', r'\1 \2', text, flags=_re.IGNORECASE)
-    text = _re.sub(r'(SL|TP)([\d])', r'\1 \2', text, flags=_re.IGNORECASE)
+    text = _re.sub(r'(SL|TP)(\d)',           r'\1 \2', text, flags=_re.IGNORECASE)
+
     return (
         text.replace("¹", "1")
             .replace("²", "2")
@@ -41,16 +50,16 @@ def normalize_text(text: str) -> str:
             .replace("—", "-")
     )
 
+
 def clean_number(val: float) -> str:
     return str(int(val)) if val == int(val) else str(val)
 
 
 # ================== DEFAULT SL CALCULATOR ==================
-# Approximate USD pip value per 0.01 lot for each symbol
 PIP_VALUE_MAP = {
-    "XAUUSD":  1.00,   # Gold:    1 pip = $1.00 per 0.01 lot
-    "XAGUSD":  0.05,   # Silver
-    "USDJPY":  0.0076, # JPY pairs
+    "XAUUSD":  1.00,
+    "XAGUSD":  0.05,
+    "USDJPY":  0.0076,
     "GBPJPY":  0.0076,
     "EURJPY":  0.0076,
     "CHFJPY":  0.0076,
@@ -67,30 +76,26 @@ PIP_VALUE_MAP = {
     "DEFAULT": 0.01,
 }
 
-DEFAULT_SL_USD = 10.0  # Risk $10 by default
+DEFAULT_SL_USD = 10.0
 
-# Minimum SL distance in price points per symbol
 MIN_SL_DISTANCE = {
-    "XAUUSD": 10.0,   # Gold min 10 points
-    "XAGUSD": 0.50,
-    "BTCUSD": 500.0,
-    "ETHUSD": 20.0,
-    "USDJPY": 0.50,
-    "GBPJPY": 0.50,
-    "EURJPY": 0.50,
+    "XAUUSD":  10.0,
+    "XAGUSD":  0.50,
+    "BTCUSD":  500.0,
+    "ETHUSD":  20.0,
+    "USDJPY":  0.50,
+    "GBPJPY":  0.50,
+    "EURJPY":  0.50,
+    "EURUSD":  0.0010,
+    "GBPUSD":  0.0010,
     "DEFAULT": 0.0010,
 }
 
 
 def calculate_default_sl(symbol: str, entry: float, direction: str) -> float:
-    """
-    Calculate a default Stop Loss price that risks ~$10
-    for a 0.01 lot trade based on symbol pip value.
-    """
     symbol_upper = (symbol or "DEFAULT").upper()
-    pip_value = PIP_VALUE_MAP.get(symbol_upper, PIP_VALUE_MAP["DEFAULT"])
+    pip_value    = PIP_VALUE_MAP.get(symbol_upper, PIP_VALUE_MAP["DEFAULT"])
 
-    # Pip size differs by instrument
     if "JPY" in symbol_upper:
         pip_size = 0.01
     elif "XAU" in symbol_upper or "GOLD" in symbol_upper:
@@ -103,10 +108,8 @@ def calculate_default_sl(symbol: str, entry: float, direction: str) -> float:
         pip_size = 0.0001
 
     pips_needed = DEFAULT_SL_USD / pip_value
-    sl_distance  = round(pips_needed * pip_size, 5)
-
-    # Apply minimum SL distance
-    min_dist = MIN_SL_DISTANCE.get(symbol_upper, MIN_SL_DISTANCE["DEFAULT"])
+    sl_distance = round(pips_needed * pip_size, 5)
+    min_dist    = MIN_SL_DISTANCE.get(symbol_upper, MIN_SL_DISTANCE["DEFAULT"])
     sl_distance = max(sl_distance, min_dist)
 
     if direction == "BUY":
@@ -117,7 +120,7 @@ def calculate_default_sl(symbol: str, entry: float, direction: str) -> float:
 
 # ================== PARSE SIGNAL ==================
 def parse_signal(text: str) -> dict:
-    text = normalize_text(text)
+    text  = normalize_text(text)
     upper = text.upper()
 
     result = {
@@ -130,45 +133,55 @@ def parse_signal(text: str) -> dict:
 
     # ── SYMBOL ───────────────────────────────────────────────────────
     symbol_map = [
-        (["XAU", "GOLD"],              "XAUUSD"),
-        (["EURUSD"],                   "EURUSD"),
-        (["GBPUSD"],                   "GBPUSD"),
-        (["USDJPY", "JPPY"],           "USDJPY"),
-        (["CHFJPY"],                   "CHFJPY"),
-        (["USDCHF"],                   "USDCHF"),
-        (["AUDUSD"],                   "AUDUSD"),
-        (["USDCAD"],                   "USDCAD"),
-        (["NZDUSD"],                   "NZDUSD"),
-        (["GBPJPY"],                   "GBPJPY"),
-        (["EURJPY"],                   "EURJPY"),
-        (["XAG", "SILVER"],            "XAGUSD"),
-        (["BTC", "BITCOIN"],           "BTCUSD"),
-        (["ETH", "ETHEREUM"],          "ETHUSD"),
-        (["LTC", "LITECOIN"],          "LTCUSD"),
-        (["XRP", "RIPPLE"],            "XRPUSD"),
-        (["ADA", "CARDANO"],           "ADAUSD"),
-        (["DOT", "POLKADOT"],          "DOTUSD"),
-        (["SOL", "SOLANA"],            "SOLUSD"),
-        (["DOGE", "DOGECOIN"],         "DOGEUSD"),
-        (["AVAX", "AVALANCHE"],        "AVAXUSD"),
-        (["MATIC", "POLYGON"],         "MATICUSD"),
-        (["SHIB", "SHIBA INU"],        "SHIBUSD"),
-        (["UNI", "UNISWAP"],           "UNIUSD"),
-        (["LINK", "CHAINLINK"],        "LINKUSD"),
-        (["LUNA", "TERRA"],            "LUNAUSD"),
-        (["ALGO", "ALGORAND"],         "ALGOUSD"),
-        (["ATOM", "COSMOS"],           "ATOMUSD"),
-        (["USOUSD", "USOIL"],          "USOUSD"),
-        (["COPPER"],                   "CATPGPY"),
-        (["NGUSD", "NATGAS"],          "NGUSD"),
-        (["NAS", "NASDAQ", "US100"],   "NAS100"),
-        (["SP500", "SPX"],             "SPX500"),
-        (["DOW", "DJ30"],              "DJ30"),
+        (["XAU", "GOLD"],            "XAUUSD"),
+        (["EURUSD", "EUR/USD"],      "EURUSD"),
+        (["GBPUSD", "GBP/USD"],      "GBPUSD"),
+        (["USDJPY", "USD/JPY"],      "USDJPY"),
+        (["CHFJPY", "CHF/JPY"],      "CHFJPY"),
+        (["USDCHF", "USD/CHF"],      "USDCHF"),
+        (["AUDUSD", "AUD/USD"],      "AUDUSD"),
+        (["USDCAD", "USD/CAD"],      "USDCAD"),
+        (["NZDUSD", "NZD/USD"],      "NZDUSD"),
+        (["GBPJPY", "GBP/JPY"],      "GBPJPY"),
+        (["EURJPY", "EUR/JPY"],      "EURJPY"),
+        (["XAG", "SILVER"],          "XAGUSD"),
+        (["BTC", "BITCOIN"],         "BTCUSD"),
+        (["ETH", "ETHEREUM"],        "ETHUSD"),
+        (["LTC", "LITECOIN"],        "LTCUSD"),
+        (["XRP", "RIPPLE"],          "XRPUSD"),
+        (["ADA", "CARDANO"],         "ADAUSD"),
+        (["DOT", "POLKADOT"],        "DOTUSD"),
+        (["SOL", "SOLANA"],          "SOLUSD"),
+        (["DOGE", "DOGECOIN"],       "DOGEUSD"),
+        (["AVAX", "AVALANCHE"],      "AVAXUSD"),
+        (["MATIC", "POLYGON"],       "MATICUSD"),
+        (["SHIB", "SHIBA"],          "SHIBUSD"),
+        (["UNI", "UNISWAP"],         "UNIUSD"),
+        (["LINK", "CHAINLINK"],      "LINKUSD"),
+        (["LUNA", "TERRA"],          "LUNAUSD"),
+        (["ALGO", "ALGORAND"],       "ALGOUSD"),
+        (["ATOM", "COSMOS"],         "ATOMUSD"),
+        (["USOUSD", "USOIL"],        "USOUSD"),
+        (["COPPER"],                 "CATPGPY"),
+        (["NGUSD", "NATGAS"],        "NGUSD"),
+        (["NAS", "NASDAQ", "US100"], "NAS100"),
+        (["SP500", "SPX"],           "SPX500"),
+        (["DOW", "DJ30"],            "DJ30"),
     ]
     for keywords, sym in symbol_map:
         if any(k in upper for k in keywords):
             result["symbol"] = sym
             break
+
+    # ── SYMBOL FALLBACK BY PRICE RANGE ───────────────────────────────
+    if result["symbol"] == "XAUUSD":
+        all_prices = re.findall(r'\b(\d{4,6}(?:\.\d+)?)\b', upper)
+        if all_prices:
+            max_price = max(float(p) for p in all_prices)
+            if max_price > 50000:
+                result["symbol"] = "BTCUSD"
+            elif max_price > 5000:
+                result["symbol"] = "ETHUSD"
 
     # ── TYPE ─────────────────────────────────────────────────────────
     if re.search(r'\bBUY\b', upper):
@@ -178,63 +191,77 @@ def parse_signal(text: str) -> dict:
 
     # ── ENTRY ────────────────────────────────────────────────────────
     entry_match = re.search(
-        r'\b(BUY|SELL)\s*(?:NOW|LIMIT|ZONE|NEAR)?\s*[:\-]?\s*'
-        r'([\d]{2,}(?:\.\d+)?)(?:\s*[-/]\s*([\d]{2,}(?:\.\d+)?))?',
+        r'\b(BUY|SELL)\s*(?:NOW|LIMIT|ZONE|NEAR)?\s*[@:\-]?\s*'
+        r'([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?',
         upper
     )
     entry_keyword_match = re.search(
         r'ENTRY\s*(?:BUY|SELL)?\s*[:\-]?\s*'
-        r'([\d]{2,}(?:\.\d+)?)(?:\s*[-/]\s*([\d]{2,}(?:\.\d+)?))?',
+        r'([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?',
         upper
     )
     zone_match = re.search(
-        r'(?:ZONE)\s*([\d]{2,}(?:\.\d+)?)\s*[-–]\s*([\d]{2,}(?:\.\d+)?)',
-        upper
+        r'ZONE\s*([\d]+(?:\.\d+)?)\s*[-]\s*([\d]+(?:\.\d+)?)', upper
     )
-    at_match = re.search(r'@\s*([\d]{2,}(?:\.\d+)?)', upper)
+    at_match = re.search(r'@\s*([\d]+(?:\.\d+)?)', upper)
 
     if entry_match:
         v1 = float(entry_match.group(2))
         v2 = entry_match.group(3)
-        result["entry"] = str(round((v1 + float(v2)) / 2)) if v2 else entry_match.group(2)
+        result["entry"] = str(round((v1 + float(v2)) / 2, 4)) if v2 else entry_match.group(2)
     elif entry_keyword_match:
         v1 = float(entry_keyword_match.group(1))
         v2 = entry_keyword_match.group(2)
-        result["entry"] = str(round((v1 + float(v2)) / 2)) if v2 else entry_keyword_match.group(1)
+        result["entry"] = str(round((v1 + float(v2)) / 2, 4)) if v2 else entry_keyword_match.group(1)
     elif zone_match:
         v1, v2 = float(zone_match.group(1)), float(zone_match.group(2))
-        result["entry"] = str(round((v1 + v2) / 2))
+        result["entry"] = str(round((v1 + v2) / 2, 4))
     elif at_match:
         result["entry"] = at_match.group(1)
 
     # ── TP ───────────────────────────────────────────────────────────
-    tp_matches = re.findall(
-        r'\bTP\s*\d{0,2}\s*[:\-\.\s_]\s*([\d]{3,}(?:\.\d+)?)|\bTP\s*\d{0,2}\s+([\d]{3,}(?:\.\d+)?)', upper
-    )
-    takeprofit_matches = re.findall(
-        r'\bTAKEPROFIT\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]{3,}(?:\.\d+)?)', upper
-    )
-    take_profit_matches = re.findall(
-        r'\bTAKE\s*PROFIT\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]{3,}(?:\.\d+)?)', upper
-    )
-    target_matches = re.findall(
-        r'\bTARGET\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]{3,}(?:\.\d+)?)', upper
-    )
-
-    # tp_matches may be list of tuples due to alternation groups — flatten
     def flat(matches):
-        result = []
+        out = []
         for m in matches:
             val = (m[0] or m[1]) if isinstance(m, tuple) else m
-            if val: result.append(val)
-        return result
+            if val:
+                out.append(val)
+        return out
 
-    all_tp = flat(tp_matches) or flat(takeprofit_matches) or flat(take_profit_matches) or flat(target_matches)
+    tp_matches = re.findall(
+        r'\bTP\s*\d{0,2}\s*[:\-\.\s_]\s*([\d]+(?:\.\d+)?)|\bTP\s*\d{0,2}\s+([\d]+(?:\.\d+)?)',
+        upper
+    )
+    takeprofit_matches = re.findall(
+        r'\bTAKEPROFIT\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]+(?:\.\d+)?)', upper
+    )
+    take_profit_matches = re.findall(
+        r'\bTAKE\s*PROFIT\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]+(?:\.\d+)?)', upper
+    )
+    target_matches = re.findall(
+        r'\bTARGET\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]+(?:\.\d+)?)', upper
+    )
+    tp1_matches = re.findall(
+        r'\bTP[1-9]\s*[:\-\.]?\s*([\d]+(?:\.\d+)?)', upper
+    )
+
+    all_tp = (flat(tp_matches) or flat(tp1_matches) or
+              takeprofit_matches or take_profit_matches or target_matches)
+
+    # Filter out wrong TP values — keep only within 20% of entry
+    if result["entry"]:
+        try:
+            entry_f = float(result["entry"])
+            all_tp  = [t for t in all_tp if entry_f > 0 and abs(float(t) - entry_f) / entry_f < 0.20]
+        except Exception:
+            pass
+
     result["tp"] = [float(tp) for tp in all_tp]
 
     # ── SL ───────────────────────────────────────────────────────────
+    # Allow text between SL and number e.g. "SL: Solid break 4714"
     sl_match = re.search(
-        r'\b(?:SL|STOPLOSS|STOP\s*LOSS)\s*[:\-\.\s_]?\s*([\d]{2,}(?:\.\d+)?)',
+        r'\b(?:SL|STOPLOSS|STOP\s*LOSS)\b[^0-9]{0,40}?([\d]+(?:\.\d+)?)',
         upper
     )
     if sl_match:
@@ -245,25 +272,19 @@ def parse_signal(text: str) -> dict:
 
 # ================== FORMAT SIGNAL ==================
 def format_signal(data: dict, source: str = None) -> str:
-    """
-    Simple signal formatter — original company format.
-    Auto-fills missing SL with ~$10 default risk.
-    Output: TYPE SYMBOL ENTRY\nTP FIRST_TP\nSL VALUE\nSource: name
-    """
     symbol    = (data.get("symbol") or "UNKNOWN").upper()
     direction = (data.get("type")   or "").upper()
     entry     = data.get("entry")
     sl        = data.get("sl")
     tp_list   = data.get("tp") or []
 
-    # ── Auto-fill missing SL ──────────────────────────────────────────
+    # Auto-fill missing SL
     if not sl and entry:
         try:
             sl = calculate_default_sl(symbol, float(entry), direction)
         except Exception:
             sl = None
 
-    # ── First TP only ─────────────────────────────────────────────────
     first_tp = clean_number(tp_list[0]) if tp_list else "N/A"
     sl_str   = clean_number(sl) if sl else "N/A"
 
@@ -278,5 +299,4 @@ def format_signal(data: dict, source: str = None) -> str:
 
 # ================== VALIDATION ==================
 def is_valid_signal(data: dict) -> bool:
-    """Signal is valid if it has type, entry, and at least one TP."""
     return bool(data["type"] and data["entry"] and data["tp"])

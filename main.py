@@ -34,54 +34,58 @@ session_string = os.getenv("SESSION_STRING")
 target_group_raw = os.getenv("TARGET_GROUP_ID")
 target_group = int(target_group_raw) if target_group_raw.startswith("-100") else target_group_raw
 
-HEARTBEAT_INTERVAL = 30 * 60  # 30 minutes
+HEARTBEAT_INTERVAL = 60 * 60  # 60 minutes
 
 # ================== SETTINGS ==================
 
-SOURCES_FILE = "sources.json"
+SOURCES_FILE = "/home/sources.json"
 
 DEFAULT_SOURCE_CHATS = [
-    -1001223812798,
-    -1002086907376,
-    -1001540535352,
-    -1001564046986,
-    -1002184500107,
-    -1003298681349,
-    -1001897903474,
-    -1001746260985,
-    -1001821769537,
-    -1002365747286,
-    -1001604836510,
-    -1001886710177,
-    -1002053336035,
-    -1002407499797,
-    -1002214622470,
-    -1001821969165,
-    -1001560921264,
-    -1001325493987,
-    -1001477403711,
-    -1001782503005,
-    -1001943914831,
-    -1002057625630,
-    -1001875148578,
-    -1002762751030,
-    -1001590096134,
-    -1002375711533,
-    -1002685861814,
-    -1001310831497,
-    -5277876817,
-    -1001200882128,
-    -1002200425625,
-    -1002138960867,
-    -1001389726384,
-    -1001414558402,
-    -1002701771444,
-    -1002122493772,
-    -1001548594995,
-    -1003854485927,
-    1001821769537,
-    -1003082825084,
-    -1001784375097
+        -1001223812798,
+        -1002086907376,
+        -1001540535352,
+        -1002184500107,
+        -1003298681349,
+        -1001897903474,
+        -1001746260985,
+        -1001821769537,
+        -1002365747286,
+        -1001604836510,
+        -1001886710177,
+        -1002053336035,
+        -1002407499797,
+        -1002214622470,
+        -1001821969165,
+        -1001560921264,
+        -1001325493987,
+        -1001477403711,
+        -1001782503005,
+        -1001943914831,
+        -1001875148578,
+        -1002762751030,
+        -1001590096134,
+        -1002375711533,
+        -1002685861814,
+        -5277876817,
+        -1002200425625,
+        -1001389726384,
+        -1001414558402,
+        -1002701771444,
+        -1001548594995,
+        1001821769537,
+        -1003082825084,
+        -1001784375097,
+        -1002132105463,
+        -1001175415497,
+        -1001559509409,
+        -1003857338133,
+        -1001564046986,
+        -1002057625630,
+        -1001310831497,
+        -1001200882128,
+        -1002138960867,
+        -1002122493772,
+        -1003854485927
 ]
 
 def load_sources() -> list:
@@ -113,7 +117,7 @@ def save_sources(chats: list):
 # Load on startup — always use this instead of SOURCE_CHATS directly
 SOURCE_CHATS = load_sources()
 
-PRINT_ALL_MESSAGES = True
+PRINT_ALL_MESSAGES = False
 SEND_TEST_ON_START = True
 
 client = TelegramClient(StringSession(session_string), api_id, api_hash)
@@ -155,11 +159,12 @@ def is_signal(text):
     if "TRADE CLOSED" in t or "POINTS MOVED" in t:               return False
     if "NEW STOP LOSS:" in t or "NEW TAKE PROFIT:" in t:         return False
     if "TRADE EXECUTED" in t:                                     return False
-    if "HIT" in t:                                                return False
+    # Block HIT only if NOT in Hindi context (hone/karo/mat/pe = Hindi words meaning "being/do/don't/on")
+    if re.search(r'\bHIT\b', t) and not re.search(r'\b(HONE|KARO|MAT|PE)\b', t): return False
     if "PROFIT DONE" in t or "PROFIT BOOKED" in t:               return False
     if "PIPS PROFIT" in t or "PIPS DONE" in t:                   return False
     if "TARGET HIT" in t or "TARGET ACHIEVED" in t:              return False
-    if "TP HIT" in t or "SL HIT" in t:                           return False
+    if re.search(r'\bTP HIT\b|\bSL HIT\b', t) and not re.search(r'\b(HONE|KARO|MAT|PE)\b', t): return False
     if "CLOSED" in t and "PROFIT" in t:                           return False
     if "IN PROFIT" in t:                                          return False
     if "LOCK IN" in t or "LOCK PROFIT" in t:                     return False
@@ -435,9 +440,9 @@ async def main():
         except Exception as e:
             print("❌ Send failed:", e)
 
-    # Recover missed messages (last 30 mins)
-    print("🔄 Checking missed messages (last 30 mins)...")
-    cutoff    = datetime.now(timezone.utc) - timedelta(minutes=30)
+    # Recover missed messages (last 60 mins)
+    print("🔄 Checking missed messages (last 60 mins)...")
+    cutoff    = datetime.now(timezone.utc) - timedelta(minutes=60)
     recovered = 0
 
     for chat_id in SOURCE_CHATS:
@@ -462,7 +467,7 @@ async def main():
     print(f"{'✅ No missed signals' if recovered == 0 else f'📬 Recovered {recovered} signals'}")
 
     asyncio.ensure_future(send_heartbeat(target_entity))
-    print("💓 Heartbeat started (every 30 mins)")
+    print("💓 Heartbeat started (every 60 mins)")
     print("🚀 Listening...")
 
     try:

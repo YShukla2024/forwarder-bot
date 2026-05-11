@@ -28,6 +28,14 @@ def normalize_text(text: str) -> str:
     # Step 7: Fix 4716.4718 (two prices joined by dot) → 4716-4718
     text = _re.sub(r'(\b\d{4,})\.(\d{4,}\b)', r'\1-\2', text)
 
+    # Step 7b: Fix short range "4693-95" → "4693-4695" (complete prefix)
+    def expand_short_range(m):
+        full = m.group(1)
+        short = m.group(2)
+        prefix = full[:len(full)-len(short)]
+        return full + '-' + prefix + short
+    text = _re.sub(r'(\b\d{4,})-(\d{2}\b)', expand_short_range, text)
+
     # Step 8: Strip emojis — replace non-ASCII with space
     text = "".join(ch if ord(ch) < 128 else " " for ch in text)
 
@@ -196,7 +204,7 @@ def parse_signal(text: str) -> dict:
         upper
     )
     entry_keyword_match = re.search(
-        r'ENTRY\s*(?:BUY|SELL)?\s*[:\-]?\s*'
+        r'ENTRY\s*(?:BUY|SELL)?\s*[:\-]{0,2}\s*'
         r'([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?',
         upper
     )
@@ -239,7 +247,7 @@ def parse_signal(text: str) -> dict:
         r'\bTAKE\s*PROFIT\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]+(?:\.\d+)?)', upper
     )
     target_matches = re.findall(
-        r'\bTARGET\s*(?:[1-9]\d?)?\s*[:\-\.\s_]?\s*([\d]+(?:\.\d+)?)', upper
+        r'\bTARGET\s*(?:[1-9]\d?)?\s*[:\-\.\s_]+\s*([\d]{3,}(?:\.\d+)?)', upper
     )
     tp1_matches = re.findall(
         r'\bTP[1-9]\s*[:\-\.]?\s*([\d]+(?:\.\d+)?)', upper

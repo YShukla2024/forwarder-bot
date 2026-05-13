@@ -214,16 +214,16 @@ def parse_signal(text: str) -> dict:
     at_match = re.search(r'@\s*([\d]+(?:\.\d+)?)', upper)
 
     if entry_match:
-        v1 = float(entry_match.group(2))
+        v1 = entry_match.group(2)
         v2 = entry_match.group(3)
-        result["entry"] = str(round((v1 + float(v2)) / 2, 4)) if v2 else entry_match.group(2)
+        result["entry"] = f"{v1}-{v2}" if v2 else v1
     elif entry_keyword_match:
-        v1 = float(entry_keyword_match.group(1))
+        v1 = entry_keyword_match.group(1)
         v2 = entry_keyword_match.group(2)
-        result["entry"] = str(round((v1 + float(v2)) / 2, 4)) if v2 else entry_keyword_match.group(1)
+        result["entry"] = f"{v1}-{v2}" if v2 else v1
     elif zone_match:
-        v1, v2 = float(zone_match.group(1)), float(zone_match.group(2))
-        result["entry"] = str(round((v1 + v2) / 2, 4))
+        v1, v2 = zone_match.group(1), zone_match.group(2)
+        result["entry"] = f"{v1}-{v2}"
     elif at_match:
         result["entry"] = at_match.group(1)
 

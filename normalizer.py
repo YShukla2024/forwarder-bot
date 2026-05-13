@@ -3,6 +3,7 @@ import re
 # ================== NORMALIZE ==================
 def normalize_text(text: str) -> str:
     import re as _re
+    import unicodedata as _ucd
 
     # Step 1: Remove Telegram hyperlink format [label](url) → keep label only
     text = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
@@ -36,12 +37,16 @@ def normalize_text(text: str) -> str:
         return full + '-' + prefix + short
     text = _re.sub(r'(\b\d{4,})-(\d{2}\b)', expand_short_range, text)
 
-    # Step 8: Strip emojis — replace non-ASCII with space
-    text = "".join(ch if ord(ch) < 128 else " " for ch in text)
+    # Step 8: Strip emojis — replace non-ASCII with space (keep dashes)
+    text = "".join(
+        "-" if _ucd.category(ch) in ("Pd",) else
+        (ch if ord(ch) < 128 else " ")
+        for ch in text
+    )
 
     # Step 9: Add spaces around keywords glued to numbers
-    text = _re.sub(r'(\d)(SL|TP|BUY|SELL)', r'\1 \2', text, flags=_re.IGNORECASE)
-    text = _re.sub(r'(SL|TP)(\d)',           r'\1 \2', text, flags=_re.IGNORECASE)
+    text = _re.sub(r'(\d)(SL|TP|BUY|SELL|STOPLOSS|TAKEPROFIT|TAKE|STOP)', r'\1 \2', text, flags=_re.IGNORECASE)
+    text = _re.sub(r'(SL|TP|STOPLOSS|TAKEPROFIT)(\d)', r'\1 \2', text, flags=_re.IGNORECASE)
 
     return (
         text.replace("¹", "1")
@@ -211,7 +216,7 @@ def parse_signal(text: str) -> dict:
     zone_match = re.search(
         r'ZONE\s*([\d]+(?:\.\d+)?)\s*[-]\s*([\d]+(?:\.\d+)?)', upper
     )
-    at_match = re.search(r'@\s*([\d]+(?:\.\d+)?)', upper)
+    at_match = re.search(r'@\s*([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?', upper)
 
     if entry_match:
         v1 = entry_match.group(2)
@@ -225,7 +230,9 @@ def parse_signal(text: str) -> dict:
         v1, v2 = zone_match.group(1), zone_match.group(2)
         result["entry"] = f"{v1}-{v2}"
     elif at_match:
-        result["entry"] = at_match.group(1)
+        v1 = at_match.group(1)
+        v2 = at_match.group(2)
+        result["entry"] = f"{v1}-{v2}" if v2 else v1
 
     # ── TP ───────────────────────────────────────────────────────────
     def flat(matches):

@@ -11,6 +11,14 @@ def normalize_text(text: str) -> str:
     # Step 2: Remove markdown bold/italic asterisks
     text = _re.sub(r'\*+', ' ', text)
 
+    # Step 2b: Remove $ currency sign and , thousand separator from numbers
+    # e.g. $4,665 → 4665
+    text = _re.sub(r'\$([\d,]+)', lambda m: m.group(1).replace(',', ''), text)
+    text = _re.sub(r'(\d),(?=\d{3})', r'\1', text)
+
+    # Step 2c: Remove CheckPoint lines — not real TP targets
+    text = _re.sub(r'(?i)checkpoint\s*\d*\s*[|:\-]?\s*[\d]+\s*(?:pips?)?', '', text)
+
     # Step 3: Extract symbol from hashtag BEFORE any unicode stripping
     text = _re.sub(r'#([A-Za-z]{2,10})', lambda m: " " + m.group(1) + " ", text)
 
@@ -204,7 +212,7 @@ def parse_signal(text: str) -> dict:
 
     # ── ENTRY ────────────────────────────────────────────────────────
     entry_match = re.search(
-        r'\b(BUY|SELL)\s*(?:NOW|LIMIT|ZONE|NEAR)?\s*[@:\-]?\s*'
+        r'\b(BUY|SELL)\s*(?:NOW|LIMIT|ZONE|NEAR)?\s*[@:\-|]?\s*'
         r'([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?',
         upper
     )

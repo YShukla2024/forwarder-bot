@@ -2,6 +2,8 @@ import os
 import re
 import asyncio
 import unicodedata
+import base64
+import io
 from datetime import datetime, timedelta, timezone
 from flask import Flask
 import threading
@@ -30,62 +32,20 @@ api_id        = int(os.getenv("API_ID"))
 api_hash      = os.getenv("API_HASH")
 phone         = os.getenv("PHONE")
 session_string = os.getenv("SESSION_STRING")
+gemini_key = os.getenv("GEMINI_API_KEY")
 
 target_group_raw = os.getenv("TARGET_GROUP_ID")
 target_group = int(target_group_raw) if target_group_raw.startswith("-100") else target_group_raw
 
-HEARTBEAT_INTERVAL = 60 * 60  # 60 minutes
+HEARTBEAT_INTERVAL = 30 * 60  # 30 minutes
 
 # ================== SETTINGS ==================
 
-SOURCES_FILE = "sources.json"
+SOURCES_FILE = "/home/sources.json"
 
 DEFAULT_SOURCE_CHATS = [
-    -1001223812798,
-    -1002086907376,
-    -1001540535352,
-    -1002184500107,
-    -1003298681349,
-    -1001897903474,
-    -1001746260985,
-    -1001821769537,
-    -1002365747286,
-    -1001604836510,
-    -1001886710177,
-    -1002053336035,
-    -1002407499797,
-    -1002214622470,
-    -1001821969165,
-    -1001560921264,
-    -1001325493987,
-    -1001477403711,
-    -1001782503005,
-    -1001943914831,
-    -1002762751030,
-    -1001590096134,
-    -1002375711533,
-    -1002685861814,
-    -5277876817,
-    -1002200425625,
-    -1001389726384,
-    -1001414558402,
-    -1002701771444,
-    -1001548594995,
-    1001821769537,
-    -1003082825084,
-    -1001784375097,
-    -1002132105463,
-    -1001175415497,
-    -1001559509409,
-    -1003857338133,
-    -1001564046986,
-    -1002057625630,
-    -1001310831497,
-    -1001200882128,
-    -1002138960867,
-    -1002122493772,
-    -1003854485927,
-    -1002608986222
+    # IDs are managed via /addchat command — stored in /home/sources.json on Azure
+    -5277876817,  # Gold Signal Test (keep for testing)
 ]
 
 def load_sources() -> list:
@@ -121,7 +81,6 @@ PRINT_ALL_MESSAGES = False
 SEND_TEST_ON_START = True
 
 client = TelegramClient(StringSession(session_string), api_id, api_hash)
-
 
 # ================== HEARTBEAT ==================
 async def send_heartbeat(target_entity):
@@ -367,6 +326,7 @@ async def cmd_listchats(event):
         lines.append(f"{i}. {cid}")
     await client.send_message(target_group, "\n".join(lines))
 
+
 # ================== MAIN HANDLER ==================
 @client.on(events.NewMessage)
 async def handler(event):
@@ -440,9 +400,9 @@ async def main():
         except Exception as e:
             print("❌ Send failed:", e)
 
-    # Recover missed messages (last 60 mins)
-    print("🔄 Checking missed messages (last 60 mins)...")
-    cutoff    = datetime.now(timezone.utc) - timedelta(minutes=60)
+    # Recover missed messages (last 30 mins)
+    print("🔄 Checking missed messages (last 30 mins)...")
+    cutoff    = datetime.now(timezone.utc) - timedelta(minutes=30)
     recovered = 0
 
     for chat_id in SOURCE_CHATS:
@@ -467,7 +427,7 @@ async def main():
     print(f"{'✅ No missed signals' if recovered == 0 else f'📬 Recovered {recovered} signals'}")
 
     asyncio.ensure_future(send_heartbeat(target_entity))
-    print("💓 Heartbeat started (every 60 mins)")
+    print("💓 Heartbeat started (every 30 mins)")
     print("🚀 Listening...")
 
     try:

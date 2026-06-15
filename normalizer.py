@@ -40,6 +40,21 @@ def normalize_text(text: str) -> str:
     # Step 7c: Fix underscore as range separator 4537_4533 → 4537-4533
     text = _re.sub(r'(\b\d{3,})_(\d{3,}\b)', r'\1-\2', text)
 
+    # Step 7d: Fix plus as range separator 4445+4450 → 4445-4450
+    text = _re.sub(r'(\b\d{3,})\+(\d{3,}\b)', r'\1-\2', text)
+
+    # Step 7f: Fix slash as range separator 4097/4100 → 4097-4100
+    text = _re.sub(r'(\b\d{3,})\/(\d{3,}\b)', r'\1-\2', text)
+
+    # Step 7e: Fix space-separated entry pairs in BUY/SELL context
+    # e.g., "SELL 4455 4458 SL" → "SELL 4455-4458 SL"
+    text = _re.sub(
+        r'((?:BUY|SELL)\s+(?:(?:NOW|LIMIT|ZONE|NEAR)\s+)?[@:\-|]?\s*)(\d{4,})(\s+)(\d{4,})(\s+(?:SL|TP|STOPLOSS|TAKEPROFIT))',
+        r'\1\2-\4\5',
+        text,
+        flags=_re.IGNORECASE
+    )
+
     # Step 7b: Fix short range "4693-95" → "4693-4695" (complete prefix)
     def expand_short_range(m):
         full = m.group(1)
@@ -252,6 +267,15 @@ def parse_signal(text: str) -> dict:
         r'([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?',
         upper
     )
+    
+    # Also support: SELL SYMBOL PRICE format (e.g., "SELL XAUUSD 4445")
+    if not entry_match:
+        entry_match = re.search(
+            r'\b(BUY|SELL)\s+[A-Z]+\s+'
+            r'([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?',
+            upper
+        )
+    
     entry_keyword_match = re.search(
         r'ENTRY\s*(?:BUY|SELL)?\s*[:\-]{0,2}\s*'
         r'([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?',
@@ -319,10 +343,17 @@ def parse_signal(text: str) -> dict:
 
     # ── SL ───────────────────────────────────────────────────────────
     # Allow text between SL and number e.g. "SL: Solid break 4714"
+    # Also handle "Stop Loss:" format
     sl_match = re.search(
         r'\b(?:SL|STOPLOSS|STOP\s*LOSS)\b[^0-9]{0,40}?([\d]+(?:\.\d+)?)',
         upper
     )
+    if not sl_match:
+        # Try alternative "Stop Loss:" with colon
+        sl_match = re.search(
+            r'(?:STOP\s+LOSS|STOPLOSS)\s*:\s*([\d]+(?:\.\d+)?)',
+            upper
+        )
     if sl_match:
         result["sl"] = float(sl_match.group(1))
 
@@ -359,3 +390,207 @@ def format_signal(data: dict, source: str = None) -> str:
 # ================== VALIDATION ==================
 def is_valid_signal(data: dict) -> bool:
     return bool(data["type"] and data["entry"] and data["tp"])
+
+
+# ================== TEST SUITE ==================
+if __name__ == "__main__":
+    """
+    Run tests with: python3 normalizer.py
+    """
+    
+    # Color codes
+    GREEN = '\033[92m'
+    RED = '\033[91m'
+    YELLOW = '\033[93m'
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
+    
+    test_signals = [
+        # PRIMARY FIXES - MUST PASS
+        {
+            "name": "SPACE-SEPARATED ENTRY (Fix #1)",
+            "signal": "XAUUSD SELL 4455 4458 Sl 4470  TP 4452 TP 4449 TP 4445 TP 4435",
+            "expect": {
+                "type": "SELL",
+                "symbol": "XAUUSD",
+                "entry": "4455-4458",
+                "sl": 4470.0,
+            }
+        },
+        {
+            "name": "PLUS-SEPARATED ENTRY (Fix #2)",
+            "signal": "XAUUSD sell 4445+4450 Sl 4455  TP 4440 TP 4435 TP 4430",
+            "expect": {
+                "type": "SELL",
+                "symbol": "XAUUSD",
+                "entry": "4445-4450",
+                "sl": 4455.0,
+            }
+        },
+        {
+            "name": "STOP LOSS FORMAT (Fix #3)",
+            "signal": "GOLD SELL  NOW  Entry: 4537_4540  Targets: TP1: 4533 TP2: 4530 TP3: 4526 TP4: 4520 TP5: 4516 TP6: 4508  Stop Loss: 4550",
+            "expect": {
+                "type": "SELL",
+                "symbol": "XAUUSD",
+                "entry": "4537-4540",
+                "sl": 4550.0,
+            }
+        },
+        
+        # BACKWARD COMPATIBILITY - ENSURE OLD FORMATS STILL WORK
+        {
+            "name": "DASH-SEPARATED (Backward Compat)",
+            "signal": "EURUSD BUY 1.2100-1.2105 TP1: 1.2150 SL: 1.2050",
+            "expect": {
+                "type": "BUY",
+                "symbol": "EURUSD",
+                "entry": "1.2100-1.2105",
+                "sl": 1.2050,
+            }
+        },
+        {
+            "name": "UNDERSCORE-SEPARATED",
+            "signal": "BTCUSD BUY Entry: 42000_42500 TP: 43000 SL: 41000",
+            "expect": {
+                "type": "BUY",
+                "symbol": "BTCUSD",
+                "entry": "42000-42500",
+                "sl": 41000.0,
+            }
+        },
+        {
+            "name": "ZONE FORMAT WITH SPACE",
+            "signal": "XAUUSD SELL ZONE 4500 4505 TP: 4450 SL: 4550",
+            "expect": {
+                "type": "SELL",
+                "symbol": "XAUUSD",
+                "entry": "4500-4505",
+                "sl": 4550.0,
+            }
+        },
+        {
+            "name": "SPACE IN ENTRY WITH @ SYMBOL",
+            "signal": "XAUUSD BUY @ 4500 4510 TP: 4600 SL: 4400",
+            "expect": {
+                "type": "BUY",
+                "symbol": "XAUUSD",
+                "entry": "4500-4510",
+                "sl": 4400.0,
+            }
+        },
+        {
+            "name": "SL WITH SPECIAL TEXT",
+            "signal": "XAUUSD SELL 4450-4460 SL: Strong break 4470 TP: 4400",
+            "expect": {
+                "type": "SELL",
+                "symbol": "XAUUSD",
+                "entry": "4450-4460",
+                "sl": 4470.0,
+            }
+        },
+        {
+            "name": "MIXED CASE INPUT",
+            "signal": "XaUUsD SeLL 4450 4460 sl 4470 tp 4400",
+            "expect": {
+                "type": "SELL",
+                "symbol": "XAUUSD",
+                "entry": "4450-4460",
+                "sl": 4470.0,
+            }
+        },
+        
+        # ========== NEW: SINGLE ENTRY SIGNALS (NO RANGES) ==========
+        {
+            "name": "SINGLE ENTRY (Symbol SELL Price)",
+            "signal": "SELL XAUUSD 4445 TP 4440 SL 4455",
+            "expect": {
+                "type": "SELL",
+                "symbol": "XAUUSD",
+                "entry": "4445",
+                "sl": 4455.0,
+            }
+        },
+        {
+            "name": "SINGLE ENTRY (Symbol SELL Price v2)",
+            "signal": "SELL XAUUSD 4455 TP 4452 SL 4470",
+            "expect": {
+                "type": "SELL",
+                "symbol": "XAUUSD",
+                "entry": "4455",
+                "sl": 4470.0,
+            }
+        },
+        {
+            "name": "SINGLE ENTRY (Symbol BUY Price)",
+            "signal": "BUY EURUSD 1.2100 TP 1.2200 SL 1.2000",
+            "expect": {
+                "type": "BUY",
+                "symbol": "EURUSD",
+                "entry": "1.2100",
+                "sl": 1.2,
+            }
+        },
+        {
+            "name": "SINGLE ENTRY (Crypto Symbol)",
+            "signal": "BUY BTCUSD 50000 TP 52000 SL 48000",
+            "expect": {
+                "type": "BUY",
+                "symbol": "BTCUSD",
+                "entry": "50000",
+                "sl": 48000.0,
+            }
+        },
+        
+        # ========== NEW: SLASH-SEPARATED ENTRY ==========
+        {
+            "name": "SLASH-SEPARATED ENTRY (NEW)",
+            "signal": "Gold SELL Zone 4097/4100  1_TP 4094 2_TP 4091 3_TP 4088 4_TP 4085 5_TP 4081   Stop Loss 4107  Risk Management",
+            "expect": {
+                "type": "SELL",
+                "symbol": "XAUUSD",
+                "entry": "4097-4100",
+                "sl": 4107.0,
+            }
+        },
+    ]
+    
+    print(f"\n{BOLD}{'='*80}{RESET}")
+    print(f"{BOLD}SIGNAL PARSING TEST SUITE{RESET}")
+    print(f"{BOLD}{'='*80}{RESET}\n")
+    
+    passed = 0
+    failed = 0
+    
+    for test in test_signals:
+        result = parse_signal(test["signal"])
+        all_match = True
+        
+        for key, expected_val in test["expect"].items():
+            actual_val = result.get(key)
+            if actual_val != expected_val:
+                all_match = False
+                break
+        
+        if all_match:
+            print(f"{GREEN}✓{RESET} {test['name']}")
+            passed += 1
+        else:
+            print(f"{RED}✗{RESET} {test['name']}")
+            print(f"  {YELLOW}Expected:{RESET} {test['expect']}")
+            print(f"  {YELLOW}Got:{RESET} {{type: {result['type']}, symbol: {result['symbol']}, entry: {result['entry']}, sl: {result['sl']}}}")
+            failed += 1
+    
+    print(f"\n{BOLD}{'='*80}{RESET}")
+    print(f"{BOLD}RESULTS{RESET}")
+    print(f"{BOLD}{'='*80}{RESET}")
+    print(f"{GREEN}✓ Passed: {passed}{RESET}")
+    print(f"{RED}✗ Failed: {failed}{RESET}")
+    print(f"Total: {passed + failed}\n")
+    
+    if failed == 0:
+        print(f"{GREEN}{BOLD}🎉 ALL TESTS PASSED! 🎉{RESET}\n")
+        exit(0)
+    else:
+        print(f"{RED}{BOLD}❌ SOME TESTS FAILED{RESET}\n")
+        exit(1)

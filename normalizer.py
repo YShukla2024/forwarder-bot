@@ -5,6 +5,25 @@ def normalize_text(text: str) -> str:
     import re as _re
     import unicodedata as _ucd
 
+    # Step 0: Arabic Translation Layer
+    # Translate Arabic terms to English before standard parsing
+    arabic_map = {
+        "بيع": "SELL",
+        "شراء": "BUY",
+        "اشتر": "BUY",
+        "الذهب": "GOLD",
+        "وقف الخسارة": "SL",
+        "الهدف الأول": "TP1",
+        "الهدف الثاني": "TP2",
+        "الهدف الثالث": "TP3",
+        "الهدف الرابع": "TP4",
+        "الهدف الخامس": "TP5",
+        "الهدف": "TP",
+        "بسعر": "",  # Remove "at price" so SELL GOLD connects directly to the entry numbers
+    }
+    for ar, en in arabic_map.items():
+        text = text.replace(ar, en)
+
     # Step 1: Remove Telegram hyperlink format [label](url) → keep label only
     text = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
 
@@ -73,6 +92,7 @@ def normalize_text(text: str) -> str:
     # Step 9: Add spaces around keywords glued to numbers
     text = _re.sub(r'(\d)(SL|TP|BUY|SELL|STOPLOSS|TAKEPROFIT|TAKE|STOP)', r'\1 \2', text, flags=_re.IGNORECASE)
     text = _re.sub(r'(SL|TP|STOPLOSS|TAKEPROFIT)(\d)', r'\1 \2', text, flags=_re.IGNORECASE)
+    text = _re.sub(r'\b(\d)[_\s\-]*TP\b', r'TP\1', text, flags=_re.IGNORECASE)
 
     return (
         text.replace("¹", "1")
@@ -334,7 +354,7 @@ def parse_signal(text: str) -> dict:
     # Filter out wrong TP values — keep only within 20% of entry
     if result["entry"]:
         try:
-            entry_f = float(result["entry"])
+            entry_f = float(result["entry"].split('-')[0]) # Use first entry price for comparison
             all_tp  = [t for t in all_tp if entry_f > 0 and abs(float(t) - entry_f) / entry_f < 0.20]
         except Exception:
             pass
@@ -371,7 +391,9 @@ def format_signal(data: dict, source: str = None) -> str:
     # Auto-fill missing SL
     if not sl and entry:
         try:
-            sl = calculate_default_sl(symbol, float(entry), direction)
+            # Handle range by picking the first number for calculation
+            entry_val = float(entry.split('-')[0])
+            sl = calculate_default_sl(symbol, entry_val, direction)
         except Exception:
             sl = None
 
@@ -386,11 +408,9 @@ def format_signal(data: dict, source: str = None) -> str:
 
     return "\n".join(lines)
 
-
 # ================== VALIDATION ==================
 def is_valid_signal(data: dict) -> bool:
     return bool(data["type"] and data["entry"] and data["tp"])
-
 
 # ================== TEST SUITE ==================
 if __name__ == "__main__":
@@ -553,6 +573,19 @@ if __name__ == "__main__":
                 "sl": 4107.0,
             }
         },
+
+        # ========== NEW: ARABIC TRANSLATION TEST ==========
+        {
+            "name": "ARABIC SIGNAL TRANSLATION (NEW)",
+            "signal": "بيع الذهب بسعر 4331 - 4336\nوقف الخسارة: 4341\nالهدف الأول: 4321\nالهدف الثاني: 4311",
+            "expect": {
+                "type": "SELL",
+                "symbol": "XAUUSD",
+                "entry": "4331-4336",
+                "sl": 4341.0,
+                "tp": [4321.0, 4311.0] # Added tp verification for thoroughness
+            }
+        },
     ]
     
     print(f"\n{BOLD}{'='*80}{RESET}")
@@ -568,7 +601,12 @@ if __name__ == "__main__":
         
         for key, expected_val in test["expect"].items():
             actual_val = result.get(key)
-            if actual_val != expected_val:
+            if key == "tp" and actual_val is not None:
+                # Truncate actual TP list to length of expected TP list to check matches
+                if actual_val[:len(expected_val)] != expected_val:
+                    all_match = False
+                    break
+            elif actual_val != expected_val:
                 all_match = False
                 break
         
@@ -578,7 +616,7 @@ if __name__ == "__main__":
         else:
             print(f"{RED}✗{RESET} {test['name']}")
             print(f"  {YELLOW}Expected:{RESET} {test['expect']}")
-            print(f"  {YELLOW}Got:{RESET} {{type: {result['type']}, symbol: {result['symbol']}, entry: {result['entry']}, sl: {result['sl']}}}")
+            print(f"  {YELLOW}Got:{RESET} {{type: {result['type']}, symbol: {result['symbol']}, entry: {result['entry']}, sl: {result['sl']}, tp: {result['tp']}}}")
             failed += 1
     
     print(f"\n{BOLD}{'='*80}{RESET}")

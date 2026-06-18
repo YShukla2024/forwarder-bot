@@ -37,11 +37,11 @@ gemini_key = os.getenv("GEMINI_API_KEY")
 target_group_raw = os.getenv("TARGET_GROUP_ID")
 target_group = int(target_group_raw) if target_group_raw.startswith("-100") else target_group_raw
 
-HEARTBEAT_INTERVAL = 30 * 60  # 30 minutes
+HEARTBEAT_INTERVAL = 60 * 60  # 60 minutes
 
 # ================== SETTINGS ==================
 
-SOURCES_FILE = "/home/sources.json"
+SOURCES_FILE = "sources.json"
 
 DEFAULT_SOURCE_CHATS = [
     # IDs are managed via /addchat command — stored in /home/sources.json on Azure
@@ -400,8 +400,8 @@ async def main():
         except Exception as e:
             print("❌ Send failed:", e)
 
-    # Recover missed messages (last 30 mins)
-    print("🔄 Checking missed messages (last 30 mins)...")
+    # Recover missed messages (last60 mins)
+    print("🔄 Checking missed messages (last60 mins)...")
     cutoff    = datetime.now(timezone.utc) - timedelta(minutes=30)
     recovered = 0
 
@@ -427,7 +427,7 @@ async def main():
     print(f"{'✅ No missed signals' if recovered == 0 else f'📬 Recovered {recovered} signals'}")
 
     asyncio.ensure_future(send_heartbeat(target_entity))
-    print("💓 Heartbeat started (every 30 mins)")
+    print("💓 Heartbeat started (every 60 mins)")
     print("🚀 Listening...")
 
     try:

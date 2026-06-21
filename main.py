@@ -106,7 +106,7 @@ def is_signal(text):
     t = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii').upper()
 
     # Fix common typos
-    t = t.replace('BUYY', 'BUY').replace('SELLL', 'SELL')
+    t = t.replace('BUYY', 'BUY').replace('SELLL', 'SELL').replace('Long','BUY').replace('Short','SELL')
     # Remove Telegram link format [text](url) → keep just text
     import re as _re
     t = _re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', t)
@@ -149,7 +149,13 @@ def is_signal(text):
     has_trade_info = re.search(
         r'(TP|SL|TAKE\s*PROFIT|STOP\s*LOSS|STOPLOSS|STOPLOS|TAKEPROFIT|TARGET\s*\d|STOPLOSS|SL\s*BREAK)', t
     )
-    return bool(has_direction and has_trade_info)
+    
+    simple_signal = re.search(
+        r'\b(BUY|SELL)\b[\s\n]+[A-Z]{3,10}[\s\n]+\d+(?:\.\d+)?',
+        t,
+        re.MULTILINE
+    )
+    return bool((has_direction and has_trade_info)or simple_signal)
 
 
 # ================== HELPERS ==================

@@ -41,7 +41,7 @@ HEARTBEAT_INTERVAL = 60 * 60  # 60 minutes
 
 # ================== SETTINGS ==================
 
-SOURCES_FILE = "sources.json"
+SOURCES_FILE = "home/sources.json"
 
 DEFAULT_SOURCE_CHATS = [
     # IDs are managed via /addchat command — stored in /home/sources.json on Azure

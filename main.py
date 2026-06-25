@@ -45,7 +45,53 @@ SOURCES_FILE = "/home/sources.json"
 
 DEFAULT_SOURCE_CHATS = [
     # IDs are managed via /addchat command — stored in /home/sources.json on Azure
-    -5277876817,  # Gold Signal Test (keep for testing)
+    -5277876817,
+    -1001223812798,
+    -1002086907376,
+    -1001540535352,
+    -1001897903474,
+    -1001821769537,
+    -1002365747286,
+    -1001604836510,
+    -1001886710177,
+    -1002214622470,
+    -1001560921264,
+    -1001325493987,
+    -1001477403711,
+    -1001943914831,
+    -1002762751030,
+    -1001590096134,
+    -1002375711533,
+    -1002685861814,
+    -1002200425625,
+    -1001414558402,
+    -1002701771444,
+    1001821769537,
+    -1001784375097,
+    -1001175415497,
+    -1003857338133,
+    -1002608986222,
+    -1002505604296,
+    -1002878257254,
+    -1001918089511,
+    -1002742276977,
+    -1002223788417,
+    -1001975523010,
+    -1001761740065,
+    -1001166724126,
+    -1003608142452,
+    -1001976133358,
+    -1002108856565,
+    -1001968847231,
+    -1002148227049,
+    -1001336715612,
+    -1001631160505,
+    -1002408764057,
+    -1002236569301,
+    -1001421473967,
+    -1003940312262,
+    -1001157172353,
+    -1001762313616,  # Gold Signal Test (keep for testing)
 ]
 
 def load_sources() -> list:
@@ -329,7 +375,8 @@ async def cmd_listchats(event):
         return
     lines = [f"📋 Source Chats ({len(SOURCE_CHATS)} total):\n"]
     for i, cid in enumerate(SOURCE_CHATS, 1):
-        lines.append(f"{i}. {cid}")
+        chat_name = await get_chat_name(cid)
+        lines.append(f"{i}. {chat_name} ({cid})")
     await client.send_message(target_group, "\n".join(lines))
 
 

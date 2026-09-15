@@ -164,7 +164,8 @@ def is_blocked_message(text):
 
     normalized = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii').upper()
     return bool(
-        re.search(r'\bPIPS?\b', normalized)
+        "TP" in normalized
+        or re.search(r'\bPIPS?\b', normalized)
         or re.search(r'\bHOLD\s+BACK\b', normalized)
     )
 

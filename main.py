@@ -158,6 +158,25 @@ def is_signal(text):
     return bool((has_direction and has_trade_info)or simple_signal)
 
 
+def is_blocked_message(text):
+    if not text:
+        return False
+
+    normalized = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii').upper()
+    return bool(
+        re.search(r'\bPIPS?\b', normalized)
+        or re.search(r'\bHOLD\s+BACK\b', normalized)
+    )
+
+
+def is_cancel_message(text):
+    if not text:
+        return False
+
+    normalized = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii').upper()
+    return bool(re.search(r'\bCANCEL(?:LED|LING)?\b', normalized))
+
+
 # ================== HELPERS ==================
 async def get_chat_name(chat_id):
     try:
@@ -352,7 +371,9 @@ async def handler(event):
             return
 
         text = normalize_text(raw_text)
-        if not is_signal(text):
+        if is_blocked_message(text):
+            return
+        if not is_signal(text) and not is_cancel_message(text):
             return
 
         data      = parse_signal(text)
@@ -423,7 +444,9 @@ async def main():
                 if not msg.text or not msg.text.strip():
                     continue
                 text = normalize_text(msg.text)
-                if is_signal(text):
+                if is_blocked_message(text):
+                    continue
+                if is_signal(text) or is_cancel_message(text):
                     data      = parse_signal(text)
                     chat_name = await get_chat_name(chat_id)
                     output    = format_signal(data, source=chat_name)
